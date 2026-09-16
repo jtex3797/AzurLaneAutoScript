@@ -2,7 +2,7 @@ name: Sync upstream
 
 on:
   schedule:
-    - cron: '30 19 * * *'  # daily, 04:30 KST
+    - cron: '17 * * * *'  # hourly, at :17 to avoid on-the-hour queue delays
   workflow_dispatch:
 
 permissions:

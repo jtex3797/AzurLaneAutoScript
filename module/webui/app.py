@@ -66,6 +66,7 @@ from module.webui.process_manager import ProcessManager
 from module.webui.remote_access import RemoteAccess
 from module.webui.setting import State
 from module.webui.updater import updater
+from module.webui.workflow_checker import workflow_checker
 from module.webui.utils import (
     Icon,
     Switch,
@@ -1276,10 +1277,37 @@ class AlasGUI(Frame):
             name="update_state",
         )
 
+        def workflow_notify(state):
+            if state in ("failure", "stale"):
+                self._wf_sync_alerted = True
+                toast(
+                    "업스트림 동기화 실패 — 포크의 GitHub Actions 탭을 확인하세요"
+                    if state == "failure"
+                    else "업스트림 동기화가 멈춰 있음 — 포크의 GitHub Actions 탭을 확인하세요",
+                    duration=0,
+                    position="right",
+                    color="error",
+                )
+            elif state == "ok" and getattr(self, "_wf_sync_alerted", False):
+                self._wf_sync_alerted = False
+                toast(
+                    "업스트림 동기화 복구됨",
+                    duration=3,
+                    position="right",
+                    color="success",
+                )
+
+        workflow_switch = Switch(
+            status=workflow_notify,
+            get_state=lambda: workflow_checker.state,
+            name="workflow_state",
+        )
+
         self.task_handler.add(self.state_switch.g(), 2)
         self.task_handler.add(self.set_aside_status, 2)
         self.task_handler.add(visibility_state_switch.g(), 15)
         self.task_handler.add(update_switch.g(), 1)
+        self.task_handler.add(workflow_switch.g(), 2)
         self.task_handler.start()
 
         # Return to previous page
@@ -1452,6 +1480,7 @@ def startup():
     if updater.delay > 0:
         task_handler.add(updater.check_update, updater.delay)
     task_handler.add(updater.schedule_update(), 86400)
+    task_handler.add(workflow_checker.check, 3600)
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:
         init_discord_rpc()
