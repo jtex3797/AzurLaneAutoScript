@@ -152,6 +152,17 @@ class AlasGUI(Frame):
             ],
             onclick=[lambda: go_app("manage", new_window=False)],
         )
+        put_scope("aside_scheduler_btn")
+        if hasattr(self, "aside_scheduler_switch"):
+            # Unlike state_switch (see the comment in show()), this widget's
+            # scope is destroyed by the clear=True on this method regardless
+            # of state value, so its generator must be reset to force a
+            # redraw, then rendered at once instead of waiting for the next
+            # polling tick (same immediate-switch idea as ui_develop()).
+            sw = self.aside_scheduler_switch
+            with sw._lock:
+                sw._generator = sw._get_state()
+            sw.switch()
 
 
     @use_scope("aside_instance")
@@ -1136,6 +1147,37 @@ class AlasGUI(Frame):
                 get_state=lambda: getattr(getattr(self, "alas", -1), "state", 0),
                 name="state",
             )
+        # Persistent scheduler START/STOP button at the bottom of the aside.
+        # Created here (same guard pattern as state_switch above) because
+        # set_aside() below needs the instance for its immediate redraw hook.
+        # Registered without pending_delete so it survives page switches.
+        if not hasattr(self, "aside_scheduler_switch"):
+            def aside_scheduler_start():
+                if hasattr(self, "alas"):
+                    self.alas.start(None, updater.event)
+                else:
+                    toast(
+                        "인스턴스를 먼저 선택하세요",
+                        duration=2,
+                        position="right",
+                        color="warn",
+                    )
+
+            def aside_scheduler_stop():
+                if hasattr(self, "alas"):
+                    self.alas.stop()
+
+            self.aside_scheduler_switch = BinarySwitchButton(
+                label_on=t("Gui.Button.Stop"),
+                label_off=t("Gui.Button.Start"),
+                onclick_on=aside_scheduler_stop,
+                onclick_off=aside_scheduler_start,
+                get_state=lambda: getattr(getattr(self, "alas", None), "alive", False),
+                color_on="off",
+                color_off="on",
+                scope="aside_scheduler_btn",
+            )
+            self.task_handler.add(self.aside_scheduler_switch.g(), 1)
         self.set_aside()
         self.init_aside(name="Home")
         self.dev_set_menu()

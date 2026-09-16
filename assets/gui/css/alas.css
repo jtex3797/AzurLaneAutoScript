@@ -528,3 +528,23 @@ pre.rich-traceback-code {
     height: 1.5rem;
     border: .2em solid currentColor;
 }
+/* Custom (fork): persistent scheduler start/stop button pinned to aside bottom.
+   Additions only — do not modify rules above (upstream merge safety). */
+#pywebio-scope-aside {
+    display: flex;
+    flex-direction: column;
+}
+
+#pywebio-scope-aside > * {
+    flex-shrink: 0;
+}
+
+#pywebio-scope-aside_scheduler_btn {
+    margin-top: auto;
+    padding: 8px 4px 8px 4px;
+}
+
+#pywebio-scope-aside_scheduler_btn .btn {
+    width: 100%;
+    padding: 4px 2px;
+}
