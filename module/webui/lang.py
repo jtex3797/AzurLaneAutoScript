@@ -47,7 +47,7 @@ def _t(s, lang=None):
         return dic_lang[lang][s]
     except KeyError:
         print(f"Language key ({s}) not found")
-        return s
+        return dic_lang.get("en-US", {}).get(s, s)
 
 
 dic_lang: Dict[str, Dict[str, str]] = {}
@@ -65,6 +65,10 @@ def reload():
         for path, v in deep_iter(read_file(filepath_i18n(lang)), depth=3):
             dic_lang[lang][".".join(path)] = v
 
-    for key in dic_lang["ja-JP"].keys():
-        if dic_lang["ja-JP"][key] == key:
-            dic_lang["ja-JP"][key] = dic_lang["en-US"][key]
+    for current_lang in LANGUAGES:
+        if current_lang == "en-US":
+            continue
+        for key, english in dic_lang["en-US"].items():
+            value = dic_lang[current_lang].get(key)
+            if value is None or value == key:
+                dic_lang[current_lang][key] = english
