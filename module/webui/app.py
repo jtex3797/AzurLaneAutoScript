@@ -1243,6 +1243,7 @@ class AlasGUI(Frame):
         # setup gui
         set_env(title="Alas", output_animation=False)
         add_css(filepath_css("alas"))
+        add_css(filepath_css("alas-fork"))
         if self.is_mobile:
             add_css(filepath_css("alas-mobile"))
         else:
