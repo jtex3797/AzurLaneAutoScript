@@ -1,6 +1,10 @@
 /* Fork-only styles (jtex3797): kept in a separate file so upstream
    alas.css stays byte-identical and never conflicts on merge.
 
+   ASCII only: add_css() in module/webui/utils.py opens css files with the
+   system default encoding (cp949 on Korean Windows), so any non-ASCII
+   character here crashes the GUI session.
+
    The scheduler button renders through put_icon_buttons() like every other
-   aside entry, so it needs no rules of its own — it sits right below the
+   aside entry, so it needs no rules of its own: it sits right below the
    manage button in DOM order and inherits .btn-aside / .aside-icon. */
