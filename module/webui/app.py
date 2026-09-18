@@ -66,6 +66,7 @@ from module.webui.process_manager import ProcessManager
 from module.webui.remote_access import RemoteAccess
 from module.webui.setting import State
 from module.webui.updater import updater
+from module.webui.fork_widgets import ICON_STOP, IconSwitchButton
 from module.webui.workflow_checker import workflow_checker
 from module.webui.utils import (
     Icon,
@@ -1167,14 +1168,14 @@ class AlasGUI(Frame):
                 if hasattr(self, "alas"):
                     self.alas.stop()
 
-            self.aside_scheduler_switch = BinarySwitchButton(
+            self.aside_scheduler_switch = IconSwitchButton(
                 label_on=t("Gui.Button.Stop"),
                 label_off=t("Gui.Button.Start"),
+                icon_on=ICON_STOP,
+                icon_off=Icon.RUN,
                 onclick_on=aside_scheduler_stop,
                 onclick_off=aside_scheduler_start,
                 get_state=lambda: getattr(getattr(self, "alas", None), "alive", False),
-                color_on="off",
-                color_off="on",
                 scope="aside_scheduler_btn",
             )
             self.task_handler.add(self.aside_scheduler_switch.g(), 1)

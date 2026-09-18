@@ -1,22 +1,6 @@
 /* Fork-only styles (jtex3797): kept in a separate file so upstream
-   alas.css stays byte-identical and never conflicts on merge. */
+   alas.css stays byte-identical and never conflicts on merge.
 
-/* Persistent scheduler start/stop button pinned to aside bottom */
-#pywebio-scope-aside {
-    display: flex;
-    flex-direction: column;
-}
-
-#pywebio-scope-aside > * {
-    flex-shrink: 0;
-}
-
-#pywebio-scope-aside_scheduler_btn {
-    margin-top: auto;
-    padding: 8px 4px 8px 4px;
-}
-
-#pywebio-scope-aside_scheduler_btn .btn {
-    width: 100%;
-    padding: 4px 2px;
-}
+   The scheduler button renders through put_icon_buttons() like every other
+   aside entry, so it needs no rules of its own — it sits right below the
+   manage button in DOM order and inherits .btn-aside / .aside-icon. */
