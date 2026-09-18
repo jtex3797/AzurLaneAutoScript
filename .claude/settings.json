@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./toolkit/python.exe dev_tools/fork_log_triage.py:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)"
+    ],
+    "deny": [
+      "Read(./toolkit/**)",
+      "Read(./*.zip)",
+      "Read(./**/__pycache__/**)"
+    ]
+  }
+}
