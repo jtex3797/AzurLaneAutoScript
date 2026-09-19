@@ -13,10 +13,17 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
 - `module/webui/workflow_checker.py`: asks the GitHub API for the latest run of the fork's `sync-upstream.yml`.
   States: `ok`, `failure`, `stale` (no run for 6 h), `unknown`. `check()` must never raise, because
   `TaskHandler.loop()` permanently drops a task that raises. Registered hourly in `startup()`.
+- `module/webui/instance_watchdog.py`: auto-restarts a scheduler instance that died unexpectedly (exit(1)
+  paths in `alas.py`) and stayed dead for 10 min. Rolling cap 3 restarts/6 h, then pauses until manual start
+  or cooldown. Crash detection scans the last renderables for clean-exit sentinels (`Reason: Manual stop`
+  etc.) instead of trusting `ProcessManager.state == 3` alone; skips ticks while `updater.state` is busy.
+  Log-only notification (lands in `*_gui.txt`). `check()` must never raise (same TaskHandler contract).
+  Registered every 60 s in `startup()`.
 - `assets/gui/css/alas-fork.css`: all fork CSS. Loaded in `AlasGUI.run()` right after `alas` via
   `add_css(filepath_css("alas-fork"))`. Net fork diff in `alas.css` is zero; keep it that way.
 - Hooks inside `app.py` (the only fork edits there): `put_scope("aside_scheduler_btn")` plus the immediate redraw in
-  `set_aside()`, creation of `aside_scheduler_switch` guarded by `hasattr`, the `workflow_notify` toast switch, and
+  `set_aside()`, creation of `aside_scheduler_switch` guarded by `hasattr`, the `workflow_notify` toast switch,
+  the `instance_watchdog` import + `task_handler.add(instance_watchdog.check, 60)` in `startup()`, and
   the `{"label": "한국어", "value": "ko-KR"}` language option.
 
 Rules

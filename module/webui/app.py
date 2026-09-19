@@ -67,6 +67,7 @@ from module.webui.remote_access import RemoteAccess
 from module.webui.setting import State
 from module.webui.updater import updater
 from module.webui.fork_widgets import ICON_START, ICON_STOP, IconSwitchButton
+from module.webui.instance_watchdog import instance_watchdog
 from module.webui.workflow_checker import workflow_checker
 from module.webui.utils import (
     Icon,
@@ -1525,6 +1526,7 @@ def startup():
         task_handler.add(updater.check_update, updater.delay)
     task_handler.add(updater.schedule_update(), 86400)
     task_handler.add(workflow_checker.check, 3600)
+    task_handler.add(instance_watchdog.check, 60)
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:
         init_discord_rpc()
