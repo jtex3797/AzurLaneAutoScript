@@ -10,9 +10,16 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
 - `module/webui/fork_widgets.py`: `IconSwitchButton(Switch)`, the persistent scheduler START/STOP button pinned to
   the bottom of the aside. Rendered with `put_icon_buttons()` inside `use_scope()`. The rendered column carries a
   `--fork-switch-on--` / `--fork-switch-off--` style marker that `alas-fork.css` colours.
-- `module/webui/workflow_checker.py`: asks the GitHub API for the latest run of the fork's `sync-upstream.yml`.
-  States: `ok`, `failure`, `stale` (no run for 6 h), `unknown`. `check()` must never raise, because
-  `TaskHandler.loop()` permanently drops a task that raises. Registered hourly in `startup()`.
+  Also `workflow_toast_text()` / `show_workflow_status_popup()`: the sync warning toast carries the numbers and
+  is clickable, opening a popup with the last run, a link to the workflow page and a 60 s-throttled re-check.
+- `module/webui/workflow_checker.py`: asks the GitHub API whether upstream commits are actually missing
+  (`compare` with base = this fork's `Branch`, head = `LmeSzinc:AzurLaneAutoScript:master`; `ahead_by` is the
+  number that matters), not how long ago `sync-upstream.yml` last ran. GitHub drops scheduled runs under load,
+  so an hourly cron really fires every 2-6 h and a run-recency rule cried wolf whenever upstream went quiet.
+  States: `ok`, `failure` (latest run failed), `stale` (upstream commits unmerged for over 24 h, or, when the
+  compare call is unreachable, last run older than that), `unknown`. `check()` must never raise, because
+  `TaskHandler.loop()` permanently drops a task that raises; it also takes a non-blocking lock so the hourly
+  tick and the popup's manual re-check cannot interleave and mix up its fields. Registered hourly in `startup()`.
 - `module/webui/instance_watchdog.py`: auto-restarts a scheduler instance that died unexpectedly (exit(1)
   paths in `alas.py`) and stayed dead for 10 min. Rolling cap 3 restarts/6 h, then pauses until manual start
   or cooldown. Crash detection scans the last renderables for clean-exit sentinels (`Reason: Manual stop`

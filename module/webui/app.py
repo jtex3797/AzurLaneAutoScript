@@ -66,7 +66,8 @@ from module.webui.process_manager import ProcessManager
 from module.webui.remote_access import RemoteAccess
 from module.webui.setting import State
 from module.webui.updater import updater
-from module.webui.fork_widgets import ICON_START, ICON_STOP, IconSwitchButton
+from module.webui.fork_widgets import (ICON_START, ICON_STOP, IconSwitchButton,
+                                       show_workflow_status_popup, workflow_toast_text)
 from module.webui.instance_watchdog import instance_watchdog
 from module.webui.workflow_checker import workflow_checker
 from module.webui.utils import (
@@ -1323,18 +1324,23 @@ class AlasGUI(Frame):
         )
 
         def workflow_notify(state):
+            # _wf_sync_alerted holds the state already warned about. A
+            # duration=0 toast never closes on its own, so re-toasting the
+            # same problem would stack red boxes on top of each other.
+            # 'unknown' (a network hiccup) neither warns nor clears it.
             if state in ("failure", "stale"):
-                self._wf_sync_alerted = True
+                if getattr(self, "_wf_sync_alerted", None) == state:
+                    return
+                self._wf_sync_alerted = state
                 toast(
-                    "업스트림 동기화 실패 — 포크의 GitHub Actions 탭을 확인하세요"
-                    if state == "failure"
-                    else "업스트림 동기화가 멈춰 있음 — 포크의 GitHub Actions 탭을 확인하세요",
+                    workflow_toast_text(state),
                     duration=0,
                     position="right",
                     color="error",
+                    onclick=show_workflow_status_popup,
                 )
-            elif state == "ok" and getattr(self, "_wf_sync_alerted", False):
-                self._wf_sync_alerted = False
+            elif state == "ok" and getattr(self, "_wf_sync_alerted", None):
+                self._wf_sync_alerted = None
                 toast(
                     "업스트림 동기화 복구됨",
                     duration=3,
