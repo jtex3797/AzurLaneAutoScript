@@ -160,6 +160,7 @@ class ProcessManager:
             # Run alas
             if func == "alas":
                 from alas import AzurLaneAutoScript
+                from module.fork_recovery import ForkAzurLaneAutoScript as AzurLaneAutoScript
 
                 if e is not None:
                     AzurLaneAutoScript.stop_event = e
