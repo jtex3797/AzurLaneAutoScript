@@ -28,15 +28,20 @@ RE_BOX_BLANK = re.compile(u'^[\u2502\\s]*$')
 ALERT = ('WARNING', 'ERROR', 'CRITICAL')
 SEVERE = ('ERROR', 'CRITICAL')
 
-FOOTER = """HOW TO READ (alas.py run()/loop()):
+FOOTER = """HOW TO READ (alas.py run()/loop(), with module/fork_recovery.py on top for the scheduler):
 - GameStuckError / GameTooManyClickError / GameBugError: dump saved to log/error/<ms>/, task `Restart` queued.
   So the failing task is NOT the last section; "Function calls:" (INFO) just above the WARNING is the call stack.
-- GamePageUnknownError: dump + exit(1) if the game server is up. Bare Exception: traceback + dump + exit(1).
+- GamePageUnknownError: dump + CRITICAL "Game page unknown" if the game server is up, then NO exit:
+  WARNING "Game page unknown, ... will be restarted" and task `Restart` is queued.
+- Same task failing 3 times in a row: NO exit, WARNING "postpone it for N minutes" (30/60/120/240) and the other
+  tasks go on. Grep older logs for "postpone it for". "fleet lost the battle" = the failure ended on a defeat page.
+  Only task `Restart` failing 3 times still gives CRITICAL + exit(1).
+- Bare Exception: traceback + dump + exit(1).
 - ScriptError / RequestHumanTakeover: exit(1) with NO dump folder; this log is the only evidence.
-- Same task failing 3 times in a row: CRITICAL + exit(1).
 - Rich tracebacks: the exception type/message is the LAST line of the box, not the ERROR line.
 - Section title -> method of the same name (snake_case) in alas.py -> the module it imports.
-- Fork web GUI code (module/webui/) logs to *_gui.txt, not to the scheduler log."""
+- Fork web GUI code (module/webui/) logs to *_gui.txt, not to the scheduler log. "instance_watchdog:" lines there
+  show a crashed scheduler being restarted and a manually stopped one being resumed."""
 
 
 def newest(pattern, count=1):

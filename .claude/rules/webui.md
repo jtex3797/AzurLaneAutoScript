@@ -22,8 +22,13 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   tick and the popup's manual re-check cannot interleave and mix up its fields. Registered hourly in `startup()`.
 - `module/webui/instance_watchdog.py`: auto-restarts a scheduler instance that died unexpectedly (exit(1)
   paths in `alas.py`) and stayed dead for 10 min. Rolling cap 3 restarts/6 h, then pauses until manual start
-  or cooldown. Crash detection scans the last renderables for clean-exit sentinels (`Reason: Manual stop`
-  etc.) instead of trusting `ProcessManager.state == 3` alone; skips ticks while `updater.state` is busy.
+  or cooldown. Exit reason = the newest clean-exit sentinel in the last renderables (`Reason: Manual stop`
+  etc.), not `ProcessManager.state == 3` alone; skips ticks while `updater.state` is busy.
+  Also resumes an instance that was stopped by hand and forgotten: 30 min after the stop AND 10 min without
+  keyboard/mouse input on the PC (`GetLastInputInfo`), so it never takes the game from a user at the PC.
+  The stop time lives in `log/fork_manual_stop.json` to survive the GUI reload of an update (detected by
+  `config/reloadalas` still existing at import); a GUI started by the user clears it, so closing Alas is how
+  to keep an instance stopped. `MANUAL_RESUME_SECONDS = None` turns it off.
   Log-only notification (lands in `*_gui.txt`). `check()` must never raise (same TaskHandler contract).
   Registered every 60 s in `startup()`.
 - `assets/gui/css/alas-fork.css`: all fork CSS. Loaded in `AlasGUI.run()` right after `alas` via
