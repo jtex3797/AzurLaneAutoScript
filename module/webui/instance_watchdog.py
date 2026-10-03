@@ -5,6 +5,7 @@ import threading
 import time
 import weakref
 
+import yaml
 from rich.console import Console
 
 from module.logger import logger
@@ -16,10 +17,13 @@ RESTART_LIMIT = 3
 RESTART_WINDOW_SECONDS = 6 * 3600
 # A manually stopped instance is started again once the stop is this old
 # and the PC had no keyboard or mouse input for MANUAL_IDLE_SECONDS.
-# Set MANUAL_RESUME_SECONDS to None to disable.
 MANUAL_RESUME_SECONDS = 1800
 MANUAL_IDLE_SECONDS = 600
 MANUAL_STOP_FILE = "./log/fork_manual_stop.json"
+# On/off of that resume, switched by the toggle below the aside start/stop
+# button (fork_widgets.py). Gitignored, so it survives updates.
+SETTINGS_FILE = "./config/fork.yaml"
+SETTINGS_KEY = "ManualStopAutoResume"
 # Written by the updater right before it reloads the GUI
 RELOAD_FILE = "./config/reloadalas"
 UPDATER_BUSY_STATES = ("start", "wait", "run update", "reload")
@@ -68,8 +72,9 @@ class InstanceWatchdog:
     the PC has been idle for MANUAL_IDLE_SECONDS, so it never grabs the game
     from a user who is still at the PC. Not counted in the crash budget.
     The stop time is kept in MANUAL_STOP_FILE to survive the GUI reload of
-    an update; a GUI started by the user forgets it, so closing Alas is the
-    way to keep an instance stopped.
+    an update; a GUI started by the user forgets it, so closing Alas keeps
+    an instance stopped. The whole resume is switched on and off with
+    set_manual_resume(), state in SETTINGS_FILE, on by default.
 
     Notification is log-only. check() must never raise: TaskHandler.loop()
     permanently removes a task that raises, which would silently kill this
@@ -103,6 +108,49 @@ class InstanceWatchdog:
             self._manual = self._manual_load()
         else:
             self._manual_save()
+        # Read by the aside toggle every second, so kept in memory
+        self.manual_resume = self._settings_load()
+
+    def set_manual_resume(self, enabled):
+        """
+        Args:
+            enabled (bool): False to leave manually stopped instances stopped.
+        """
+        self.manual_resume = bool(enabled)
+        if not self.manual_resume and self._manual:
+            # Count from the start when it is switched on again
+            self._manual = {}
+            self._manual_save()
+        try:
+            data = {}
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, mode="r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+            if not isinstance(data, dict):
+                data = {}
+            data[SETTINGS_KEY] = self.manual_resume
+            with open(SETTINGS_FILE, mode="w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, default_flow_style=False)
+        except Exception as e:
+            logger.warning(f"instance_watchdog: failed to save {SETTINGS_FILE}, {e!r}")
+        logger.info(
+            f"instance_watchdog: auto resume after manual stop "
+            f"{'enabled' if self.manual_resume else 'disabled'}"
+        )
+
+    @staticmethod
+    def _settings_load():
+        """
+        Returns:
+            bool: If manually stopped instances get resumed, True when the
+                file does not exist yet or can't be read.
+        """
+        try:
+            with open(SETTINGS_FILE, mode="r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            return bool(data.get(SETTINGS_KEY, True))
+        except Exception:
+            return True
 
     def check(self):
         # Registered in startup() via task_handler.add(self.check, 60).
@@ -234,7 +282,7 @@ class InstanceWatchdog:
         self._check_manual_stop(pm)
 
     def _check_manual_stop(self, pm):
-        if MANUAL_RESUME_SECONDS is None:
+        if not self.manual_resume:
             return
         name = pm.config_name
         now = time.time()

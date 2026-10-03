@@ -10,6 +10,9 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
 - `module/webui/fork_widgets.py`: `IconSwitchButton(Switch)`, the persistent scheduler START/STOP button pinned to
   the bottom of the aside. Rendered with `put_icon_buttons()` inside `use_scope()`. The rendered column carries a
   `--fork-switch-on--` / `--fork-switch-off--` style marker that `alas-fork.css` colours.
+  Right below it, in the same scope and the same Switch (polled state = `(alive, resume on)`, so `app.py` has no
+  second hook), sits the on/off toggle of the watchdog's manual-stop resume (`--fork-resume-on--` /
+  `--fork-resume-off--`, `toggle_manual_resume()`). The click only flips the state; the next poll redraws.
   Also `workflow_toast_text()` / `show_workflow_status_popup()`: the sync warning toast carries the numbers and
   is clickable, opening a popup with the last run, a link to the workflow page and a 60 s-throttled re-check.
 - `module/webui/workflow_checker.py`: asks the GitHub API whether upstream commits are actually missing
@@ -28,7 +31,8 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   keyboard/mouse input on the PC (`GetLastInputInfo`), so it never takes the game from a user at the PC.
   The stop time lives in `log/fork_manual_stop.json` to survive the GUI reload of an update (detected by
   `config/reloadalas` still existing at import); a GUI started by the user clears it, so closing Alas is how
-  to keep an instance stopped. `MANUAL_RESUME_SECONDS = None` turns it off.
+  to keep an instance stopped. On/off lives in `config/fork.yaml` (`ManualStopAutoResume`, gitignored, on by
+  default) and is switched by the aside toggle through `set_manual_resume()`.
   Log-only notification (lands in `*_gui.txt`). `check()` must never raise (same TaskHandler contract).
   Registered every 60 s in `startup()`.
 - `assets/gui/css/alas-fork.css`: all fork CSS. Loaded in `AlasGUI.run()` right after `alas` via
@@ -47,3 +51,9 @@ Rules
 - GUI-side errors go to `log/<date>_gui.txt`, not to the scheduler log. `dev_tools/fork_log_triage.py` reads both.
 - Find the fork's exact lines in an upstream file with
   `git log --first-parent --no-merges -p 92c07aa28..HEAD -- <file>`.
+- Check a GUI change end to end without touching the live app: `git archive HEAD gui.py alas.py module deploy
+  config submodule assets/gui campaign` into a scratch dir, overlay the changed files, and run
+  `<repo>/toolkit/python.exe gui.py --port <free port> --host 127.0.0.1` there (`module.logger` chdir's into
+  that copy, so its `config/` and `log/` are its own). Drive headless Edge over `--remote-debugging-port` with
+  the bundled `websockets` (CDP `Runtime.evaluate` reads the DOM and clicks). A plain `--screenshot` fires
+  before pywebio has drawn anything.

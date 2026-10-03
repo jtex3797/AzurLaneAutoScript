@@ -34,3 +34,22 @@
 #pywebio-scope-aside_scheduler_btn div[style*="--fork-switch-on--"] .btn-aside {
     color: #da3633;
 }
+
+/* Toggle of the resume after a manual stop, below the start/stop button
+   in the same scope. On: blue */
+#pywebio-scope-aside_scheduler_btn div[style*="--fork-resume-on--"] .aside-icon > path {
+    fill: #388bfd;
+}
+
+#pywebio-scope-aside_scheduler_btn div[style*="--fork-resume-on--"] .btn-aside {
+    color: #388bfd;
+}
+
+/* Off: grey */
+#pywebio-scope-aside_scheduler_btn div[style*="--fork-resume-off--"] .aside-icon > path {
+    fill: #8b949e;
+}
+
+#pywebio-scope-aside_scheduler_btn div[style*="--fork-resume-off--"] .btn-aside {
+    color: #8b949e;
+}

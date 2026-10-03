@@ -1,5 +1,6 @@
 from pywebio.output import popup, put_button, put_link, put_scope, put_text, toast, use_scope
 
+from module.webui.instance_watchdog import MANUAL_IDLE_SECONDS, MANUAL_RESUME_SECONDS, instance_watchdog
 from module.webui.utils import Switch
 from module.webui.widgets import put_icon_buttons
 from module.webui.workflow_checker import workflow_checker
@@ -22,6 +23,12 @@ ICON_STOP = (
     ' xmlns="http://www.w3.org/2000/svg">' + _RING +
     '<path d="M368 368h288v288H368z"></path></svg>'
 )
+# Clock hands: the resume happens by itself after a while
+ICON_RESUME = (
+    '<svg class="aside-icon icon-resume" viewBox="0 0 1024 1024" version="1.1"'
+    ' xmlns="http://www.w3.org/2000/svg">' + _RING +
+    '<path d="M480 304h64v176h144v64H480z"></path></svg>'
+)
 
 WORKFLOW_POPUP_SCOPE = "fork_workflow_status"
 
@@ -36,6 +43,12 @@ class IconSwitchButton(Switch):
     The rendered column carries a `--fork-switch-on--` / `--fork-switch-off--`
     style marker (same trick as put_icon_buttons' `--aside-{value}--`) so CSS
     can color each state.
+
+    Right below it, in the same scope, sits the toggle of instance_watchdog's
+    resume after a manual stop (`--fork-resume-on--` / `--fork-resume-off--`).
+    Both are driven by this one Switch, whose polled state is the pair
+    (button state, resume on), so app.py needs no second hook and a click on
+    the toggle shows up in every open browser session.
     """
 
     def __init__(
@@ -55,19 +68,62 @@ class IconSwitchButton(Switch):
         # collide with the `--aside-{value}--` selector of a real instance
         # button in active_button().
         self.value = value
-        status = {
-            0: {"func": self.update_button, "args": (label_off, icon_off, onclick_off, "off")},
-            1: {"func": self.update_button, "args": (label_on, icon_on, onclick_on, "on")},
+        self.button = {
+            False: (label_off, icon_off, onclick_off, "off"),
+            True: (label_on, icon_on, onclick_on, "on"),
         }
-        super().__init__(status=status, get_state=get_state, name=scope)
+        super().__init__(
+            status=self.update_button,
+            get_state=lambda: (bool(get_state()), instance_watchdog.manual_resume),
+            name=scope,
+        )
 
-    def update_button(self, label, icon, onclick, marker):
+    def update_button(self, state):
+        if state == -1:
+            # Nothing changed since the last poll
+            return
+        on, resume = state
+        label, icon, onclick, marker = self.button[on]
         with use_scope(self.scope, clear=True):
             put_icon_buttons(
                 icon,
                 buttons=[{"label": label, "value": self.value, "color": "aside"}],
                 onclick=[onclick],
             ).style(f"--fork-switch-{marker}--")
+            put_icon_buttons(
+                ICON_RESUME,
+                buttons=[{
+                    "label": "자동재개" if resume else "재개꺼짐",
+                    "value": "fork:resume",
+                    "color": "aside",
+                }],
+                onclick=[toggle_manual_resume],
+            ).style(f"--fork-resume-{'on' if resume else 'off'}--")
+
+
+def toggle_manual_resume():
+    """
+    Click on the resume toggle. No redraw here: the next poll of every
+    IconSwitchButton sees the changed state and redraws its scope within a
+    second, which also avoids two threads rendering the same scope at once.
+    """
+    enabled = not instance_watchdog.manual_resume
+    instance_watchdog.set_manual_resume(enabled)
+    if enabled:
+        toast(
+            f"수동 정지 후 자동 재개 켜짐 — 정지 {MANUAL_RESUME_SECONDS // 60}분 뒤, "
+            f"PC 입력이 {MANUAL_IDLE_SECONDS // 60}분 없으면 다시 시작합니다",
+            duration=5,
+            position="right",
+            color="success",
+        )
+    else:
+        toast(
+            "수동 정지 후 자동 재개 꺼짐 — 직접 시작할 때까지 멈춰 있습니다",
+            duration=5,
+            position="right",
+            color="warn",
+        )
 
 
 def _hours(seconds):
