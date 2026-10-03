@@ -13,11 +13,20 @@ stay true while upstream changes hourly. Area-specific detail belongs in `.claud
 1. Both updaters run `git reset --hard origin/master` (`deploy/Windows/git.py`, `module/webui/updater.py`).
    Uncommitted edits to TRACKED files get wiped, unpushed commits can be too; untracked files survive.
    So finish a change, commit, and `git push origin master` right away. Never leave tracked edits lying around.
+   A push itself makes the running app reset within about 5 minutes: never keep editing a tracked file after
+   pushing. Prepare the next change outside the repo, then copy, commit and push in one go.
 2. Keep the diff against upstream files minimal, or the hourly merge will conflict. Put fork code in NEW files
    (precedent: `module/webui/fork_widgets.py`, `module/webui/workflow_checker.py`, `assets/gui/css/alas-fork.css`,
    `dev_tools/fork_*.py`) and touch upstream files only through small additive hooks.
 3. Fork commit messages: Korean, lowercase prefix (`add:`, `upd:`, `fix:`, `refactor:`), short title, then
    `- ` bullets, and NO `Co-Authored-By` trailer. Upstream's English `Add:`/`Fix:` style is not used here.
+4. This folder IS the running app, and `config/*.json` is the user's only copy of their settings (gitignored).
+   `module/logger.py` does `os.chdir(<repo root>)` at import, so a throwaway script that imports any `module.*`
+   must chdir to its scratch directory AFTER the imports, build every path from that absolute directory, and
+   never use a real instance name such as `alas`. Copy `config/alas.json` into `config/backup/` before running
+   anything that writes files. If it is lost anyway: every change ever made is in `log/*_gui.txt` and
+   `log/*_alas.txt` as `Save config ./config\alas.json, K=V`; replaying them onto `config/template.json`
+   rebuilds it.
 
 ## Fork delta (never hand-maintain a list)
     git log --first-parent --no-merges --format= --name-only 92c07aa28..HEAD | sort -u
