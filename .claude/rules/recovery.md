@@ -28,11 +28,19 @@ Left out on purpose
   `emulator_start_watch()` waits for the `127.0.0.1:*` serial that adb never lists, and the BlueStacks5 stop
   pattern expects quoted arguments that psutil does not return. Needs a run against the real emulator first.
 - No handler for the defeat pages inside auto search (upstream combat code).
+- No "emulator window not focused" rule for the manual-stop resume (tried, then removed). The user often runs
+  auto battles by hand while working in other windows, so an unfocused emulator does not mean nobody plays.
+
+Manual-stop resume, known limits (PC input is the only signal)
+- Auto battle started by hand, then the user steps away or only watches a video: no input for 10 min, so Alas
+  takes the game over 30 min after the stop.
+- The same account played on a phone while the PC sits idle: the resume logs in and kicks the phone session.
+- No resume while the PC is used without a 10 min break, or when the idle time can't be read.
+- The answer to all three is the aside toggle: switch the resume off before playing by hand or on the phone.
 
 Testing
 - `alas.py` `loop()`/`run()` can be driven for real with a fake config/device/checker injected as properties
   on a subclass; `exit(1)` surfaces as `SystemExit`.
 - The watchdog can be loaded from a file with stub `module.webui.process_manager` / `module.webui.updater`
-  entries in `sys.modules`, a fake clock on its `time` name and patched `idle_seconds` / `foreground_process`.
-  `process_name()` can be checked against the real emulator pid without touching window focus.
+  entries in `sys.modules`, a fake clock on its `time` name and a patched `idle_seconds`.
 - Such scripts must follow hard rule 4 in `CLAUDE.md`.

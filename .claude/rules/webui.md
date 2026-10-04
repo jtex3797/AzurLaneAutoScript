@@ -27,12 +27,8 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   paths in `alas.py`) and stayed dead for 10 min. Rolling cap 3 restarts/6 h, then pauses until manual start
   or cooldown. Exit reason = the newest clean-exit sentinel in the last renderables (`Reason: Manual stop`
   etc.), not `ProcessManager.state == 3` alone; skips ticks while `updater.state` is busy.
-  Also resumes an instance that was stopped by hand and forgotten: 30 min after the stop AND (10 min without
-  keyboard/mouse input on the PC (`GetLastInputInfo`) OR no emulator window (`EMULATOR_PROCESSES`) was the
-  active window for 10 min (`GetForegroundWindow`, sampled by `check()` every tick, an unreadable window counts
-  as the emulator)). So it never takes the game from a user who is playing it, but it does resume while they
-  work in other windows with the emulator left open. Playing the same account on another device is not
-  detected: switch the resume off for that.
+  Also resumes an instance that was stopped by hand and forgotten: 30 min after the stop AND 10 min without
+  keyboard/mouse input on the PC (`GetLastInputInfo`), so it never takes the game from a user at the PC.
   The stop time lives in `log/fork_manual_stop.json` to survive the GUI reload of an update (detected by
   `config/reloadalas` still existing at import); a GUI started by the user clears it, so closing Alas is how
   to keep an instance stopped. On/off lives in `config/fork.yaml` (`ManualStopAutoResume`, gitignored, on by

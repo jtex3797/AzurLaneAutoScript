@@ -10,11 +10,15 @@ stay true while upstream changes hourly. Area-specific detail belongs in `.claud
 - The running app auto-updates itself from origin/master (`config/deploy.yaml`: AutoUpdate, 5-minute check).
 
 ## Hard rules
-1. Both updaters run `git reset --hard origin/master` (`deploy/Windows/git.py`, `module/webui/updater.py`).
+1. Both updaters run `git reset --hard origin/master`: the launcher at every app start (`deploy/Windows/git.py`,
+   when AutoUpdate) and the GUI updater whenever origin/master has commits this folder lacks
+   (`module/webui/updater.py`; in practice after an upstream merge, every 2-6 h and only when upstream moved).
    Uncommitted edits to TRACKED files get wiped, unpushed commits can be too; untracked files survive.
-   So finish a change, commit, and `git push origin master` right away. Never leave tracked edits lying around.
-   A push itself makes the running app reset within about 5 minutes: never keep editing a tracked file after
-   pushing. Prepare the next change outside the repo, then copy, commit and push in one go.
+   A local commit missing from origin makes the GUI updater skip every update until it is pushed.
+   A push made from this folder is "No update" for the running app: the code is on disk, but the GUI keeps the
+   old code until it restarts. Never tell the user a change applies within minutes.
+   Prepare a change outside the repo, then copy, commit and `git push origin master` in one go. If the push is
+   rejected because origin moved: fetch, `git merge --no-edit origin/master`, push again. Never force.
 2. Keep the diff against upstream files minimal, or the hourly merge will conflict. Put fork code in NEW files
    (precedent: `module/webui/fork_widgets.py`, `module/webui/workflow_checker.py`, `assets/gui/css/alas-fork.css`,
    `dev_tools/fork_*.py`) and touch upstream files only through small additive hooks.
