@@ -16,9 +16,22 @@ GRACE_SECONDS = 600
 RESTART_LIMIT = 3
 RESTART_WINDOW_SECONDS = 6 * 3600
 # A manually stopped instance is started again once the stop is this old
-# and the PC had no keyboard or mouse input for MANUAL_IDLE_SECONDS.
+# and the user is not at the emulator: no keyboard or mouse input on the PC
+# for MANUAL_IDLE_SECONDS, or no emulator window was the active window for
+# MANUAL_EMULATOR_SECONDS (working in other windows is fine).
 MANUAL_RESUME_SECONDS = 1800
 MANUAL_IDLE_SECONDS = 600
+MANUAL_EMULATOR_SECONDS = 600
+# File names (lower case) of the programs that own an emulator window
+EMULATOR_PROCESSES = (
+    "hd-player.exe",  # BlueStacks 5
+    "mumuplayer.exe",  # MuMu 12
+    "mumunxmain.exe",
+    "nemuplayer.exe",  # MuMu 6
+    "dnplayer.exe",  # LDPlayer
+    "memu.exe",
+    "nox.exe",
+)
 MANUAL_STOP_FILE = "./log/fork_manual_stop.json"
 # On/off of that resume, switched by the toggle below the aside start/stop
 # button (fork_widgets.py). Gitignored, so it survives updates.
@@ -57,6 +70,65 @@ def idle_seconds():
         return None
 
 
+def process_name(pid):
+    """
+    Returns:
+        str: File name of the program of that process, lower case,
+            None if it can't be read.
+    """
+    try:
+        if not pid:
+            return None
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        kernel32.QueryFullProcessImageNameW.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_wchar_p,
+            ctypes.POINTER(ctypes.c_ulong),
+        ]
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        # PROCESS_QUERY_LIMITED_INFORMATION
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return None
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            size = ctypes.c_ulong(len(buf))
+            if not kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+                return None
+            return buf.value.replace("/", "\\").rsplit("\\", 1)[-1].lower()
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return None
+
+
+def foreground_process():
+    """
+    Returns:
+        str: File name of the program that owns the active window, lower
+            case. "" if no window is active (locked screen).
+            None if unknown (not Windows, access denied).
+    """
+    try:
+        user32 = ctypes.WinDLL("user32")
+        user32.GetForegroundWindow.restype = ctypes.c_void_p
+        user32.GetWindowThreadProcessId.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_ulong),
+        ]
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return ""
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        return process_name(pid.value)
+    except Exception:
+        return None
+
+
 class InstanceWatchdog:
     """
     Fork module: auto-restart watchdog for scheduler instances.
@@ -69,8 +141,10 @@ class InstanceWatchdog:
 
     Stopped by hand and forgotten: when the newest sentinel is "Manual stop",
     the instance is started again once MANUAL_RESUME_SECONDS have passed and
-    the PC has been idle for MANUAL_IDLE_SECONDS, so it never grabs the game
-    from a user who is still at the PC. Not counted in the crash budget.
+    the PC has been idle for MANUAL_IDLE_SECONDS or no emulator window has
+    been the active window for MANUAL_EMULATOR_SECONDS (sampled by check()),
+    so it never grabs the game from a user who is playing it. Not counted in
+    the crash budget.
     The stop time is kept in MANUAL_STOP_FILE to survive the GUI reload of
     an update; a GUI started by the user forgets it, so closing Alas keeps
     an instance stopped. The whole resume is switched on and off with
@@ -87,9 +161,12 @@ class InstanceWatchdog:
       revived instance works normally.
     - The updater force-stopping an instance after its 10 min wait writes
       the same sentinel, so that looks like a manual stop too.
-    - A PC in use never counts as idle, so there is no resume while the
-      user keeps working on it. A PC waking from sleep without input can
-      resume at once, sleep time counts as idle time.
+    - The active window is sampled once per check(), so a visit to the
+      emulator shorter than the tick can go unseen. An active window that
+      can't be read counts as the emulator. Playing the same account on
+      another device is not detected, switch the resume off for that.
+      A PC waking from sleep without input can resume at once, sleep time
+      counts as idle time.
     - Crash memory (restart budget, gave-up flag) lives in this GUI
       process and resets on GUI reload / auto-update restart.
     - Upstream ProcessManager.start() is an unlocked check-then-act, so a
@@ -110,6 +187,9 @@ class InstanceWatchdog:
             self._manual_save()
         # Read by the aside toggle every second, so kept in memory
         self.manual_resume = self._settings_load()
+        # time.monotonic() an emulator window was last the active window.
+        # Starts now: nothing is known about the time before this process.
+        self._emulator_seen = time.monotonic()
 
     def set_manual_resume(self, enabled):
         """
@@ -155,6 +235,7 @@ class InstanceWatchdog:
     def check(self):
         # Registered in startup() via task_handler.add(self.check, 60).
         try:
+            self._sample_emulator()
             # Busy check by updater.state only: updater.event can stay set
             # forever after a no-reload update success, which would mute
             # the watchdog permanently if used alone.
@@ -177,6 +258,16 @@ class InstanceWatchdog:
                     logger.warning(f"instance_watchdog: [{name}] {e!r}")
         except Exception as e:
             logger.warning(f"instance_watchdog: {e!r}")
+
+    def _sample_emulator(self):
+        # Unknown counts as the emulator, the resume then relies on the PC
+        # idle check alone.
+        try:
+            name = foreground_process()
+        except Exception:
+            name = None
+        if name is None or name in EMULATOR_PROCESSES:
+            self._emulator_seen = time.monotonic()
 
     def _check_instance(self, pm, now):
         proc = pm._process
@@ -292,17 +383,20 @@ class InstanceWatchdog:
             self._manual_save()
             logger.info(
                 f"instance_watchdog: [{name}] stopped manually, auto resume after "
-                f"{MANUAL_RESUME_SECONDS}s once the PC is idle for {MANUAL_IDLE_SECONDS}s"
+                f"{MANUAL_RESUME_SECONDS}s once the PC is idle for {MANUAL_IDLE_SECONDS}s "
+                f"or no emulator window was active for {MANUAL_EMULATOR_SECONDS}s"
             )
             return
         if now - since < MANUAL_RESUME_SECONDS:
             return
         idle = idle_seconds()
-        if idle is None or idle < MANUAL_IDLE_SECONDS:
+        away = idle is not None and idle >= MANUAL_IDLE_SECONDS
+        unused = time.monotonic() - self._emulator_seen >= MANUAL_EMULATOR_SECONDS
+        if not away and not unused:
             return
-        self._resume(pm)
+        self._resume(pm, "PC idle" if away else "emulator window not in use")
 
-    def _resume(self, pm):
+    def _resume(self, pm, reason=""):
         # Same per-config lock stop() uses, so we never race a Stop click.
         lock = pm._process_locks.setdefault(pm.config_name, threading.Lock())
         with lock:
@@ -313,8 +407,9 @@ class InstanceWatchdog:
                 return
             if pm._process is not None and self._last_sentinel(pm) != SENTINEL_MANUAL:
                 return
+            why = f" ({reason})" if reason else ""
             logger.warning(
-                f"instance_watchdog: [{pm.config_name}] auto resuming after manual stop"
+                f"instance_watchdog: [{pm.config_name}] auto resuming after manual stop{why}"
             )
             pm.start(None, updater.event)
             self._manual_forget(pm.config_name)

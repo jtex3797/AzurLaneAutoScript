@@ -33,5 +33,6 @@ Testing
 - `alas.py` `loop()`/`run()` can be driven for real with a fake config/device/checker injected as properties
   on a subclass; `exit(1)` surfaces as `SystemExit`.
 - The watchdog can be loaded from a file with stub `module.webui.process_manager` / `module.webui.updater`
-  entries in `sys.modules`, a fake clock on its `time` name and a patched `idle_seconds`.
+  entries in `sys.modules`, a fake clock on its `time` name and patched `idle_seconds` / `foreground_process`.
+  `process_name()` can be checked against the real emulator pid without touching window focus.
 - Such scripts must follow hard rule 4 in `CLAUDE.md`.

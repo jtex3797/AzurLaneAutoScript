@@ -1,6 +1,11 @@
 from pywebio.output import popup, put_button, put_link, put_scope, put_text, toast, use_scope
 
-from module.webui.instance_watchdog import MANUAL_IDLE_SECONDS, MANUAL_RESUME_SECONDS, instance_watchdog
+from module.webui.instance_watchdog import (
+    MANUAL_EMULATOR_SECONDS,
+    MANUAL_IDLE_SECONDS,
+    MANUAL_RESUME_SECONDS,
+    instance_watchdog,
+)
 from module.webui.utils import Switch
 from module.webui.widgets import put_icon_buttons
 from module.webui.workflow_checker import workflow_checker
@@ -112,7 +117,8 @@ def toggle_manual_resume():
     if enabled:
         toast(
             f"수동 정지 후 자동 재개 켜짐 — 정지 {MANUAL_RESUME_SECONDS // 60}분 뒤, "
-            f"PC 입력이 {MANUAL_IDLE_SECONDS // 60}분 없으면 다시 시작합니다",
+            f"PC 입력이 {MANUAL_IDLE_SECONDS // 60}분 없거나 "
+            f"앱플 창을 {MANUAL_EMULATOR_SECONDS // 60}분 쓰지 않았으면 다시 시작합니다",
             duration=5,
             position="right",
             color="success",
