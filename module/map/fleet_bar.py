@@ -5,6 +5,7 @@ from module.base.decorator import cached_property
 from module.base.utils import area_cross_area, area_in_area, color_mask, crop, point_in_area
 from module.logger import logger
 from module.map.assets import FLEET_PREPARATION
+from module.map.fork_fleet_bar import fill_option_gaps
 
 
 class FleetOption:
@@ -112,6 +113,7 @@ class FleetBarDetector:
         for button in selected:
             button.selected = True
         options = sorted(selected + non_selected, key=lambda x: x.area[1])
+        options = fill_option_gaps(options)
         for index, button in enumerate(options, start=1):
             button.index = index
 
