@@ -60,6 +60,8 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
         self.postpone_record = {}
         # Tasks that lost a battle since their last postpone or success
         self.battle_lost_record = set()
+        # Tasks that hit the OpSi auto search stall since their last postpone or success
+        self.stalled_record = set()
         # (datetime, task) of each postpone within BROKEN_WINDOW_MINUTES
         self.postpone_history = []
         # datetime, run nothing until then
@@ -115,6 +117,7 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
             if success:
                 self.postpone_record.pop(task, None)
                 self.battle_lost_record.discard(task)
+                self.stalled_record.discard(task)
             else:
                 self.handle_task_failure(task)
         return success
@@ -133,6 +136,8 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
             # PAUSE is a long wait button, so a battle lasting over 3 minutes ends up as GameStuckError
             logger.warning('Last screenshot is a battle still running after 3 minutes, fleet is too weak')
             self.battle_lost_record.add(task)
+        if self.pop_auto_search_stalled():
+            self.stalled_record.add(task)
 
         failed = self.failure_record.get(task, 0) + 1
         if failed < FAILURE_LIMIT:
@@ -143,6 +148,8 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
 
         battle_lost = task in self.battle_lost_record
         self.battle_lost_record.discard(task)
+        stalled = task in self.stalled_record
+        self.stalled_record.discard(task)
         ladder = BATTLE_LOST_POSTPONE_MINUTES if battle_lost else POSTPONE_MINUTES
         count = self.postpone_record.get(task, 0)
         self.postpone_record[task] = count + 1
@@ -163,8 +170,9 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
 
         # loop() adds this failure on top, landing on 0 instead of FAILURE_LIMIT
         self.failure_record[task] = -1
-        # Lost battles mean a weak fleet, not a broken game, other tasks can still run
-        if not battle_lost:
+        # Lost battles mean a weak fleet and an OpSi stall is a game bug there, neither is a broken game,
+        # other tasks can still run
+        if not battle_lost and not stalled:
             self.check_broken(task)
 
     def check_broken(self, task):
@@ -228,6 +236,18 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
             from module.combat.assets import BATTLE_STATUS_D, OPTS_INFO_D
             image = self.device.image
             return bool(OPTS_INFO_D.match(image, offset=(30, 30)) or BATTLE_STATUS_D.match(image, offset=(30, 30)))
+        except Exception:
+            return False
+
+    def pop_auto_search_stalled(self):
+        """
+        Returns:
+            bool: If module/os/fork_auto_search_watch.py raised this failure. Resets the flag.
+        """
+        try:
+            stalled = getattr(self.device, 'fork_auto_search_stalled', False)
+            self.device.fork_auto_search_stalled = False
+            return bool(stalled)
         except Exception:
             return False
 

@@ -28,7 +28,8 @@ Four layers keep the bot running without a human. Upstream `alas.py` is untouche
    - 3 different tasks postponed within 120 min = game or emulator broken, not one task: `get_next_task()`
      closes the game and waits 180 min (`rest()`, config edits from GUI don't end it), then queues `Restart`.
      One task failing forever never triggers it (its own ladder handles that), nor do battle-lost rounds (a
-     weak fleet, the game still works). In memory: a scheduler restart (GUI update) ends the rest early.
+     weak fleet) or OpSi stall rounds (layer 4 sets `device.fork_auto_search_stalled` before raising); the
+     game still works for other tasks. In memory: a scheduler restart (GUI update) ends the rest early.
    - Error dumps `log/error/<ms>` older than 14 days are removed at scheduler start and after each new dump.
 2. GUI process, crash path of `module/webui/instance_watchdog.py`: see `.claude/rules/webui.md`.
 3. GUI process, manual-stop resume in the same file.

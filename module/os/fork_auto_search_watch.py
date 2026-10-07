@@ -63,6 +63,8 @@ def auto_search_watch(main):
 
     logger.warning(f'Auto search idle on map for {idle}s, restart game')
     if main.device.app_is_running():
+        # Read by module/fork_recovery.py: an OpSi game bug, not a broken game, so no global rest
+        main.device.fork_auto_search_stalled = True
         raise GameStuckError('Auto search idle on map')
     else:
         raise GameNotRunningError('Game died')
