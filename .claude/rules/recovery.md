@@ -22,6 +22,9 @@ Four layers keep the bot running without a human. Upstream `alas.py` is untouche
      lands on 0 instead of exiting. Task `Restart` is left alone and still exits.
    - Logs "fleet lost the battle" when the last screenshot matches `OPTS_INFO_D` / `BATTLE_STATUS_D`. Auto
      search has no handler for the defeat pages, so a lost battle shows up as `GameStuckError`.
+     A battle still running (any PAUSE skin, `Combat.is_combat_executing()`) counts too: PAUSE is a 180s long
+     wait button, so a weak fleet in a 3+ min battle also ends as `GameStuckError` (Main 15-2, 2026-10-05).
+     A postpone round with such a failure uses 30/60/360 min instead (user's choice: rest 6 h after 1 h).
 2. GUI process, crash path of `module/webui/instance_watchdog.py`: see `.claude/rules/webui.md`.
 3. GUI process, manual-stop resume in the same file.
 4. OpSi auto search stall, `module/os/fork_auto_search_watch.py`, hooked by one import and one call in
