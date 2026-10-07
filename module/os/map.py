@@ -10,6 +10,7 @@ from module.logger import logger
 from module.map.map import Map
 from module.os.assets import FLEET_EMP_DEBUFF, MAP_GOTO_GLOBE_FOG
 from module.os.fleet import OSFleet
+from module.os.fork_auto_search_watch import auto_search_watch
 from module.os.globe_camera import GlobeCamera
 from module.os.globe_operation import RewardUncollectedError
 from module.os_handler.assets import AUTO_SEARCH_OS_MAP_OPTION_OFF, AUTO_SEARCH_OS_MAP_OPTION_OFF_DISABLED, \
@@ -494,6 +495,7 @@ class OSMap(OSFleet, Map, GlobeCamera, StrategicSearchHandler):
                 raise RequestHumanTakeover
             if self.is_in_map():
                 self.device.stuck_record_clear()
+                auto_search_watch(self)
                 if not success:
                     if died_timer.reached():
                         logger.warning('Fleet died confirm')

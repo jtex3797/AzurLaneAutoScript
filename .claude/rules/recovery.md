@@ -4,10 +4,12 @@ paths:
   - "module/fork_recovery.py"
   - "module/webui/process_manager.py"
   - "module/webui/instance_watchdog.py"
+  - "module/os/map.py"
+  - "module/os/fork_auto_search_watch.py"
 ---
 # Fork conventions: recover instead of stopping
 
-Three layers keep the bot running without a human. Upstream `alas.py` is untouched.
+Four layers keep the bot running without a human. Upstream `alas.py` is untouched.
 
 1. Scheduler process, `module/fork_recovery.py` (`ForkAzurLaneAutoScript`, subclass of `alas.AzurLaneAutoScript`).
    Hooked by one added import line in `ProcessManager.run_process()`: scheduler loop only, single functions and
@@ -22,6 +24,12 @@ Three layers keep the bot running without a human. Upstream `alas.py` is untouch
      search has no handler for the defeat pages, so a lost battle shows up as `GameStuckError`.
 2. GUI process, crash path of `module/webui/instance_watchdog.py`: see `.claude/rules/webui.md`.
 3. GUI process, manual-stop resume in the same file.
+4. OpSi auto search stall, `module/os/fork_auto_search_watch.py`, hooked by one import and one call in
+   `OSMap.os_auto_search_daemon()` right after its per-frame `stuck_record_clear()`. That clear means a map with
+   auto search ON and a fleet standing still never trips the 60s/180s stuck timers (upstream #4792, #2101).
+   After 360s on the map with no battle and no click it clicks `AUTO_SEARCH_OS_MAP_OPTION_ON` once (upstream
+   turns it back on), then raises `GameStuckError` (or `GameNotRunningError`) after another 360s, so layer 1
+   applies. Normal runs stay under 247s idle on the map; recorded stalls were 383s to 11h.
 
 Left out on purpose
 - No emulator restart. With an `emulator-*` serial, `Device.__init__` never raises `EmulatorNotRunningError`,
