@@ -1,8 +1,12 @@
+import os
+import shutil
+import time
 from datetime import datetime, timedelta
 
 import inflection
 
 import alas
+from module.base.decorator import del_cached_property
 from module.config.deep import deep_get
 from module.exception import GamePageUnknownError
 from module.logger import logger
@@ -14,6 +18,13 @@ FAILURE_LIMIT = 3
 POSTPONE_MINUTES = (30, 60, 120, 240)
 # Same, when the fleet lost a battle in that round: the fleet stays too weak, so rest long after 1 hour
 BATTLE_LOST_POSTPONE_MINUTES = (30, 60, 360)
+# This many different tasks postponed within the window means the game or emulator is broken, not one task.
+# Close the game and run nothing for REST_MINUTES.
+BROKEN_TASK_COUNT = 3
+BROKEN_WINDOW_MINUTES = 120
+REST_MINUTES = 180
+# Error dumps in ./log/error/<ms> older than this are removed
+ERROR_KEEP_DAYS = 14
 
 
 class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
@@ -28,6 +39,9 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
       Upstream has already sent its "crashed" notification by then.
     - A task failing FAILURE_LIMIT times in a row: upstream exits, here the
       task is postponed and the other tasks keep running.
+    - BROKEN_TASK_COUNT different tasks postponed within BROKEN_WINDOW_MINUTES:
+      the game is closed and all tasks rest for REST_MINUTES.
+    - Error dumps older than ERROR_KEEP_DAYS are removed.
 
     Task `Restart` failing FAILURE_LIMIT times in a row (the game can't even
     reach the main page), ScriptError, RequestHumanTakeover and unexpected
@@ -46,6 +60,40 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
         self.postpone_record = {}
         # Tasks that lost a battle since their last postpone or success
         self.battle_lost_record = set()
+        # (datetime, task) of each postpone within BROKEN_WINDOW_MINUTES
+        self.postpone_history = []
+        # datetime, run nothing until then
+        self.rest_until = None
+        self.clean_error_log()
+
+    def get_next_task(self):
+        if self.rest_until is not None:
+            rest_until, self.rest_until = self.rest_until, None
+            if datetime.now() < rest_until:
+                self.rest(rest_until)
+        return super().get_next_task()
+
+    def rest(self, future):
+        """
+        Close the game and run nothing until `future`, then restart the game.
+
+        Args:
+            future (datetime):
+        """
+        logger.warning(f'Too many tasks failing, close game and rest until {future}')
+        try:
+            from module.base.resource import release_resources
+            self.device.app_stop()
+            release_resources()
+            self.device.release_during_wait()
+        except Exception as e:
+            logger.warning(f'Failed to close game before rest: {e}')
+        # wait_until() returns False when the config is changed from GUI, keep resting
+        while not self.wait_until(future):
+            del_cached_property(self, 'config')
+        logger.info('Rest finished, restart game')
+        self.config.task_call('Restart')
+        del_cached_property(self, 'config')
 
     def run(self, command, skip_first_screenshot=False):
         try:
@@ -115,6 +163,58 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
 
         # loop() adds this failure on top, landing on 0 instead of FAILURE_LIMIT
         self.failure_record[task] = -1
+        # Lost battles mean a weak fleet, not a broken game, other tasks can still run
+        if not battle_lost:
+            self.check_broken(task)
+
+    def check_broken(self, task):
+        """
+        Start a rest if BROKEN_TASK_COUNT different tasks were postponed within BROKEN_WINDOW_MINUTES.
+
+        Args:
+            task (str): Task just postponed
+        """
+        now = datetime.now()
+        window = timedelta(minutes=BROKEN_WINDOW_MINUTES)
+        self.postpone_history = [(t, k) for t, k in self.postpone_history if now - t < window]
+        self.postpone_history.append((now, task))
+        tasks = sorted(set(k for _, k in self.postpone_history))
+        if len(tasks) < BROKEN_TASK_COUNT:
+            return
+
+        self.postpone_history = []
+        self.rest_until = now + timedelta(minutes=REST_MINUTES)
+        logger.warning(f'Tasks {tasks} were all postponed within {BROKEN_WINDOW_MINUTES} minutes, '
+                       f'game or emulator may be broken, rest {REST_MINUTES} minutes after this task')
+        handle_notify(
+            self.config.Error_OnePushConfig,
+            title=f"Alas <{self.config_name}> resting",
+            content=f"<{self.config_name}> Tasks {tasks} kept failing, "
+                    f"game closed and all tasks rest for {REST_MINUTES} minutes",
+        )
+
+    def save_error_log(self):
+        super().save_error_log()
+        self.clean_error_log()
+
+    def clean_error_log(self):
+        """
+        Remove error dumps ./log/error/<ms> older than ERROR_KEEP_DAYS.
+        """
+        try:
+            folder = './log/error'
+            if not os.path.isdir(folder):
+                return
+            limit = (time.time() - ERROR_KEEP_DAYS * 86400) * 1000
+            removed = 0
+            for name in os.listdir(folder):
+                if name.isdigit() and int(name) < limit:
+                    shutil.rmtree(os.path.join(folder, name), ignore_errors=True)
+                    removed += 1
+            if removed:
+                logger.info(f'Removed {removed} error logs older than {ERROR_KEEP_DAYS} days')
+        except Exception as e:
+            logger.warning(f'Failed to clean error logs: {e}')
 
     def is_defeat_page(self):
         """
