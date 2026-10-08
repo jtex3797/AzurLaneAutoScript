@@ -35,12 +35,27 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   default) and is switched by the aside toggle through `set_manual_resume()`.
   Log-only notification (lands in `*_gui.txt`). `check()` must never raise (same TaskHandler contract).
   Registered every 60 s in `startup()`.
+- `module/webui/maintenance_checker.py`: official JP maintenance notice in the GUI. Every 15 min `check()` reads
+  `azurlane.jp/api/news/list?type=3` (newest row first; `■実施時間` window parsed after NFKC, year from `publishTime`,
+  `完了|終了` in the title = finished; a newest row that is live but unparsable gives `unknown`, never last week's
+  notice). Every 60 s `observe()` derives the status (`unsupported/unknown/none/scheduled/in_progress/finished`,
+  markers `soon/overdue/loading` refine label and colour; finished = title suffix or 2 h past the announced end),
+  records transitions in `log/fork_maintenance.json` and sends OnePush on start/extension/end (per JP instance's
+  `OnePushConfig`, daemon thread, one push per `status@end`; first observation of an empty state file only records).
+  JP = package `com.YoStarJP.AzurLane` or `ServerName` `jp-*`; otherwise nothing is drawn. GUI side in
+  `fork_widgets.py`: `MaintenanceAsideLine` (scope `aside_maintenance`, two-line label via `white-space: pre-line`,
+  `--fork-maint-<marker>--` colours), `show_maintenance_popup()`, `maintenance_toast()` (session toast, 30 s on
+  start/extension, 10 s on end; `toast_plan()` is the pure rule). Nothing here may raise (TaskHandler contract).
+  Probe: `./toolkit/python.exe -m module.webui.maintenance_checker --once`. Tests: `tests/fork/`, run with
+  `./toolkit/python.exe -m tests.fork.test_maintenance_checker` (no pytest needed; chdir's to a temp dir after import).
 - `assets/gui/css/alas-fork.css`: all fork CSS. Loaded in `AlasGUI.run()` right after `alas` via
   `add_css(filepath_css("alas-fork"))`. Net fork diff in `alas.css` is zero; keep it that way.
 - Hooks inside `app.py` (the only fork edits there): `put_scope("aside_scheduler_btn")` plus the immediate redraw in
   `set_aside()`, creation of `aside_scheduler_switch` guarded by `hasattr`, the `workflow_notify` toast switch,
   the `instance_watchdog` import + `task_handler.add(instance_watchdog.check, 60)` in `startup()`, and
-  the `{"label": "한국어", "value": "ko-KR"}` language option.
+  the `{"label": "한국어", "value": "ko-KR"}` language option. Maintenance notice: the `MaintenanceAsideLine`/`maintenance_toast` import,
+  `put_scope("aside_maintenance")` + redraw in `set_aside()`, `aside_maintenance_line` creation in `show()`,
+  the `maintenance_switch` toast Switch in `run()`, and `maintenance_checker.check/observe` in `startup()`.
 
 Rules
 - `alas-fork.css` must stay ASCII-only, comments included. `add_css()` in `module/webui/utils.py` opens the file

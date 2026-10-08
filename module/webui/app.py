@@ -67,9 +67,11 @@ from module.webui.remote_access import RemoteAccess
 from module.webui.setting import State
 from module.webui.updater import updater
 from module.webui.fork_widgets import (ICON_START, ICON_STOP, IconSwitchButton,
+                                       MaintenanceAsideLine, maintenance_toast,
                                        show_workflow_status_popup, workflow_toast_text)
 from module.webui.instance_watchdog import instance_watchdog
 from module.webui.workflow_checker import workflow_checker
+from module.webui.maintenance_checker import FETCH_INTERVAL, OBSERVE_INTERVAL, maintenance_checker
 from module.webui.utils import (
     Icon,
     Switch,
@@ -166,6 +168,13 @@ class AlasGUI(Frame):
             with sw._lock:
                 sw._generator = sw._get_state()
             sw.switch()
+        # Maintenance notice line below it, same redraw rule (fork)
+        put_scope("aside_maintenance")
+        if hasattr(self, "aside_maintenance_line"):
+            ml = self.aside_maintenance_line
+            with ml._lock:
+                ml._generator = ml._get_state()
+            ml.switch()
 
 
     @use_scope("aside_instance")
@@ -1181,6 +1190,9 @@ class AlasGUI(Frame):
                 scope="aside_scheduler_btn",
             )
             self.task_handler.add(self.aside_scheduler_switch.g(), 1)
+        if not hasattr(self, "aside_maintenance_line"):
+            self.aside_maintenance_line = MaintenanceAsideLine(scope="aside_maintenance")
+            self.task_handler.add(self.aside_maintenance_line.g(), 2)
         self.set_aside()
         self.init_aside(name="Home")
         self.dev_set_menu()
@@ -1353,12 +1365,18 @@ class AlasGUI(Frame):
             get_state=lambda: workflow_checker.state,
             name="workflow_state",
         )
+        maintenance_switch = Switch(
+            status=lambda s: maintenance_toast(self, s),
+            get_state=maintenance_checker.toast_state,
+            name="maintenance_state",
+        )
 
         self.task_handler.add(self.state_switch.g(), 2)
         self.task_handler.add(self.set_aside_status, 2)
         self.task_handler.add(visibility_state_switch.g(), 15)
         self.task_handler.add(update_switch.g(), 1)
         self.task_handler.add(workflow_switch.g(), 2)
+        self.task_handler.add(maintenance_switch.g(), 2)
         self.task_handler.start()
 
         # Return to previous page
@@ -1533,6 +1551,8 @@ def startup():
     task_handler.add(updater.schedule_update(), 86400)
     task_handler.add(workflow_checker.check, 3600)
     task_handler.add(instance_watchdog.check, 60)
+    task_handler.add(maintenance_checker.check, FETCH_INTERVAL)
+    task_handler.add(maintenance_checker.observe, OBSERVE_INTERVAL)
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:
         init_discord_rpc()

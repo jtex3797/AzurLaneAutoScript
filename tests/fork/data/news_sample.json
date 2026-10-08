@@ -1,0 +1,44 @@
+{
+ "meta": {
+  "v": "1",
+  "ok": true,
+  "err": {
+   "code": 0,
+   "msg": ""
+  }
+ },
+ "data": {
+  "rows": [
+   {
+    "isNew": true,
+    "id": 767,
+    "title": "メンテナンスのお知らせ（完了）",
+    "content": "<p dir=\"ltr\">いつも『アズールレーン』をプレイしていただき、誠にありがとうございます。</p>\n<p><strong>&nbsp;</strong></p>\n<p dir=\"ltr\">10月8日(木)14:00より、アップデートのためメンテナンスを実施いたします。</p>\n<p><strong>&nbsp;</strong></p>\n<p dir=\"ltr\">■実施時間</p>\n<p dir=\"ltr\">10月8日(木)14:00 ～ 10月8日(木)20:00</p>\n<p><strong>&nbsp;</strong></p>\n<p dir=\"ltr\">■対応内容</p>",
+    "type": 3,
+    "publishTime": 1791282600000,
+    "finished": 0,
+    "createdAt": 1791282015490
+   },
+   {
+    "isNew": true,
+    "id": 766,
+    "title": "メンテナンスのお知らせ（完了）",
+    "content": "<p dir=\"ltr\">いつも『アズールレーン』をプレイしていただき、誠にありがとうございます。</p>\n<p><strong>&nbsp;</strong></p>\n<p dir=\"ltr\">9月24日(木)14:00より、アップデートのためメンテナンスを実施いたします。</p>\n<p><strong>&nbsp;</strong></p>\n<p dir=\"ltr\">■実施時間</p>\n<p dir=\"ltr\">9月24日(木)14:00 ～ 9月24日(木)20:00</p>\n<p><strong>&nbsp;</strong></p>\n<p dir=\"ltr\">■対応内容</p>",
+    "type": 3,
+    "publishTime": 1790073000000,
+    "finished": 0,
+    "createdAt": 1790072379011
+   },
+   {
+    "isNew": true,
+    "id": 765,
+    "title": "メンテナンスのお知らせ（完了）",
+    "content": "<p dir=\"ltr\">いつも『アズールレーン』をプレイしていただき、誠にありがとうございます。</p>\n<p><strong>&nbsp;</strong></p>\n<p dir=\"ltr\">9月17日(木)14:00より、アップデートのためメンテナンスを実施いたします。</p>\n<p><strong>&nbsp;</strong></p>\n<p dir=\"ltr\">■実施時間</p>\n<p dir=\"ltr\">9月17日(木)14:00 ～ 9月17日(木)20:00</p>\n<p><strong>&nbsp;</strong></p>\n<p dir=\"ltr\">■対応内容</p>",
+    "type": 3,
+    "publishTime": 1789467000000,
+    "finished": 0,
+    "createdAt": 1789470905430
+   }
+  ]
+ }
+}

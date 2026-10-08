@@ -53,3 +53,52 @@
 #pywebio-scope-aside_scheduler_btn div[style*="--fork-resume-off--"] .btn-aside {
     color: #8b949e;
 }
+
+/* Maintenance notice line (module/webui/maintenance_checker.py), the aside
+   entry right below the scheduler button. Two-line label, colored by the
+   --fork-maint-<marker>-- style marker. */
+#pywebio-scope-aside_maintenance .btn-aside {
+    white-space: pre-line;
+    font-size: .7rem;
+    line-height: 1.15;
+}
+
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-scheduled--"] .aside-icon > path,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-scheduled--"] .btn-aside {
+    fill: #388bfd;
+    color: #388bfd;
+}
+
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-soon--"] .aside-icon > path,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-soon--"] .btn-aside {
+    fill: #d29922;
+    color: #d29922;
+}
+
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-in_progress--"] .aside-icon > path,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-in_progress--"] .btn-aside {
+    fill: #da3633;
+    color: #da3633;
+}
+
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-overdue--"] .aside-icon > path,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-overdue--"] .btn-aside {
+    fill: #f0883e;
+    color: #f0883e;
+}
+
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-finished--"] .aside-icon > path,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-finished--"] .btn-aside {
+    fill: #2ea043;
+    color: #2ea043;
+}
+
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-none--"] .aside-icon > path,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-none--"] .btn-aside,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-unknown--"] .aside-icon > path,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-unknown--"] .btn-aside,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-loading--"] .aside-icon > path,
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-loading--"] .btn-aside {
+    fill: #8b949e;
+    color: #8b949e;
+}

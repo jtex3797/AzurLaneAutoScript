@@ -1,6 +1,9 @@
-from pywebio.output import popup, put_button, put_link, put_scope, put_text, toast, use_scope
+from datetime import datetime
 
+from pywebio.output import popup, put_button, put_link, put_scope, put_text, toast, use_scope
+from module.logger import logger
 from module.webui.instance_watchdog import MANUAL_IDLE_SECONDS, MANUAL_RESUME_SECONDS, instance_watchdog
+from module.webui.maintenance_checker import maintenance_checker, toast_plan, window_text
 from module.webui.utils import Switch
 from module.webui.widgets import put_icon_buttons
 from module.webui.workflow_checker import workflow_checker
@@ -209,3 +212,167 @@ def _recheck():
     if not workflow_checker.recheck():
         toast("방금 확인했습니다 — 잠시 후 다시 시도하세요", duration=3, position="right", color="warn")
     _put_workflow_status()
+
+
+# ---------------------------------------------------------------------------
+# Maintenance notice line, popup and toasts (module/webui/maintenance_checker.py)
+
+MAINT_POPUP_SCOPE = "fork_maintenance_status"
+# Wrench in the same ring as the other fork icons
+ICON_MAINT = (
+    '<svg class="aside-icon icon-maint" viewBox="0 0 1024 1024" version="1.1"'
+    ' xmlns="http://www.w3.org/2000/svg">' + _RING +
+    '<path d="M700 286a150 150 0 0 0-196 180L300 670l54 54 204-204a150 150 0 0 0'
+    ' 180-196l-84 84-72-14-14-72z"></path></svg>'
+)
+
+
+class MaintenanceAsideLine(Switch):
+    """
+    Aside entry right below the scheduler button: "점검 중 / ~20:00 대기" and
+    the like, polled from maintenance_checker.snapshot(). Clicking it opens
+    show_maintenance_popup(). Nothing is drawn for a non-JP setup.
+
+    update() must never raise: the session TaskHandler drops a task that
+    raises and show() creates this Switch only once, so the line would stay
+    frozen until the page is reloaded.
+    """
+
+    def __init__(self, scope):
+        self.scope = scope
+        super().__init__(
+            status=self.update,
+            get_state=maintenance_checker.snapshot,
+            name=scope,
+        )
+
+    def update(self, state):
+        if state == -1:
+            return
+        try:
+            status, label, marker = state
+            with use_scope(self.scope, clear=True):
+                if status == "unsupported":
+                    return
+                put_icon_buttons(
+                    ICON_MAINT,
+                    buttons=[{"label": label, "value": "fork:maint", "color": "aside"}],
+                    onclick=[show_maintenance_popup],
+                ).style(f"--fork-maint-{marker}--")
+        except Exception as e:
+            logger.warning(f"maintenance aside line failed, {e!r}")
+
+
+def maintenance_headline(status, marker):
+    if status == "unsupported":
+        return "일본 서버 인스턴스가 없어 점검 공지를 확인하지 않습니다"
+    if status == "unknown":
+        if marker == "loading":
+            return "공지를 아직 확인하지 못했습니다 (GUI 시작 직후)"
+        return "공지를 가져오지 못했습니다"
+    if status == "none":
+        return "예정된 점검 공지가 없습니다"
+    if status == "scheduled":
+        if marker == "soon":
+            return "1시간 안에 점검이 시작됩니다. 시작되면 봇이 게임을 끄고 기다립니다"
+        return "점검이 예정되어 있습니다. 시작되면 봇이 게임을 끄고 기다립니다"
+    if status == "in_progress":
+        if marker == "overdue":
+            return "예정 종료 시각이 지났지만 완료 공지가 아직 없습니다. 조금 더 기다립니다"
+        return "게임을 끄고 점검이 끝나기를 기다리는 중입니다. 봇을 끄지 않아도 됩니다"
+    return "점검이 끝났습니다. 봇이 서버 상태를 확인하고 게임을 다시 켭니다"
+
+
+def show_maintenance_popup():
+    popup("점검 공지", [put_scope(MAINT_POPUP_SCOPE)])
+    _put_maintenance_status()
+
+
+def _put_maintenance_status():
+    # Snapshot first: the checker runs in other threads
+    status, _, marker = maintenance_checker.snapshot()
+    notice = maintenance_checker.notice
+    fetched_at = maintenance_checker.fetched_at
+    error = maintenance_checker.error
+    unparsed = maintenance_checker.latest_unparsed
+    instances = list(maintenance_checker.instances)
+
+    with use_scope(MAINT_POPUP_SCOPE, clear=True):
+        put_text(maintenance_headline(status, marker))
+        if notice:
+            put_text(f"실시 시간: {window_text(notice)} (일본 시간 = 한국 시간)")
+            flag = " [연장 공지]" if notice["extended"] else ""
+            put_text(f"공지: {notice['title']}{flag}")
+        put_text(f"마지막 공지 확인: {_local(fetched_at)}")
+        if error:
+            put_text(f"공지 가져오기 실패: {error}")
+        if instances and not any(maintenance_checker._has_provider(i.get("push")) for i in instances):
+            put_text("폰 알림 꺼짐: 설정 > 오류 알림 설정(OnePush)에서 켤 수 있습니다")
+        url = None
+        if notice:
+            url = notice["url"]
+        elif unparsed:
+            url = unparsed["url"]
+        if url:
+            put_link("공지 열기", url=url, new_window=True)
+        put_button("지금 다시 확인", onclick=_maint_recheck, small=True)
+
+
+def _maint_recheck():
+    # Synchronous like _recheck(): one request, 15 s worst case, throttled.
+    with use_scope(MAINT_POPUP_SCOPE, clear=True):
+        put_text("확인 중...")
+    if not maintenance_checker.recheck():
+        toast("방금 확인했습니다 — 잠시 후 다시 시도하세요", duration=3, position="right", color="warn")
+    _put_maintenance_status()
+
+
+def _end_hm(end_iso):
+    try:
+        return datetime.fromisoformat(end_iso).astimezone().strftime("%H:%M")
+    except Exception:
+        return "?"
+
+
+def maintenance_toast(gui, state):
+    """
+    Per-session toast on maintenance start, extension and end. `gui` is the
+    AlasGUI instance; the last seen state lives on it so every browser
+    session decides on its own. The first poll only records.
+    """
+    if state == -1:
+        return
+    try:
+        prev = getattr(gui, "_mt_alerted", None)
+        gui._mt_alerted = state
+        plan = toast_plan(prev, state)
+        if plan is None:
+            return
+        kind, end_iso = plan
+        end = _end_hm(end_iso)
+        if kind == "start":
+            toast(
+                f"점검 시작, {end}까지 봇이 기다립니다",
+                duration=30,
+                position="right",
+                color="error",
+                onclick=show_maintenance_popup,
+            )
+        elif kind == "extended":
+            toast(
+                f"점검 연장, {end}까지 봇이 기다립니다",
+                duration=30,
+                position="right",
+                color="warn",
+                onclick=show_maintenance_popup,
+            )
+        else:
+            toast(
+                "점검 종료, 봇이 곧 게임을 다시 켭니다",
+                duration=10,
+                position="right",
+                color="success",
+                onclick=show_maintenance_popup,
+            )
+    except Exception as e:
+        logger.warning(f"maintenance toast failed, {e!r}")
