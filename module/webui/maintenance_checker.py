@@ -229,7 +229,7 @@ def aside_label(status, marker, notice, now):
         return f"점검 중\n~{_hm(end)} 대기"
     # finished
     if now.astimezone().date() != end.astimezone().date():
-        return f"{_local(end, '%m/%d')} 점검 종료"
+        return f"{_local(end, '%m/%d')}" + chr(10) + "점검 종료"
     if notice["finished_by_title"]:
         return "점검 종료\n완료 공지"
     return f"점검 종료\n(예정 {_hm(end)})"

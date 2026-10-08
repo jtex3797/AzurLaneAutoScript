@@ -59,8 +59,9 @@
    --fork-maint-<marker>-- style marker. */
 #pywebio-scope-aside_maintenance .btn-aside {
     white-space: pre-line;
-    font-size: .7rem;
-    line-height: 1.15;
+    font-size: .62rem;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
 }
 
 #pywebio-scope-aside_maintenance div[style*="--fork-maint-scheduled--"] .aside-icon > path,
