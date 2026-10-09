@@ -48,7 +48,13 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   `fork_widgets.py`: `MaintenanceAsideLine` (scope `aside_maintenance`, two-line label via `white-space: pre-line`,
   `--fork-maint-<marker>--` colours), `show_maintenance_popup()`, `maintenance_toast()` (session toast, 30 s on
   start/extension, 10 s on end; `toast_plan()` is the pure rule). Nothing here may raise (TaskHandler contract).
-  Probe: `./toolkit/python.exe -m module.webui.maintenance_checker --once`. Tests: `tests/fork/`, run with
+  Every 5 min `poll_api()` asks the scheduler's server status API (`sc.shiratama.cn get_state`, the JP instance's
+  server name) only from 10 min before the announced start until 2 h after the announced end: "down, then up
+  with a newer last_update" pins the real end to the minute (`finished_at`, label "점검 종료 19:54", finish push
+  with the time), "down again" is an extension (new `api_round`, so the push keys `status@end@round` do not
+  block the second finish). The HTTP call runs outside the lock; the answer is dropped if the notice changed.
+  The API fields are saved with the notice's (id, end) and restored across restarts. Unparsable notice = no
+  polling. Probe: `./toolkit/python.exe -m module.webui.maintenance_checker --once [--api]`. Tests: `tests/fork/`, run with
   `./toolkit/python.exe -m tests.fork.test_maintenance_checker` (no pytest needed; chdir's to a temp dir after import).
 - `assets/gui/css/alas-fork.css`: all fork CSS. Loaded in `AlasGUI.run()` right after `alas` via
   `add_css(filepath_css("alas-fork"))`. Net fork diff in `alas.css` is zero; keep it that way.
@@ -57,7 +63,7 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   the `instance_watchdog` import + `task_handler.add(instance_watchdog.check, 60)` in `startup()`, and
   the `{"label": "한국어", "value": "ko-KR"}` language option. Maintenance notice: the `MaintenanceAsideLine`/`maintenance_toast` import,
   `put_scope("aside_maintenance")` + redraw in `set_aside()`, `aside_maintenance_line` creation in `show()`,
-  the `maintenance_switch` toast Switch in `run()`, and `maintenance_checker.check/observe` in `startup()`.
+  the `maintenance_switch` toast Switch in `run()`, and `maintenance_checker.check/observe/poll_api` in `startup()`.
 
 Rules
 - `alas-fork.css` must stay ASCII-only, comments included. `add_css()` in `module/webui/utils.py` opens the file

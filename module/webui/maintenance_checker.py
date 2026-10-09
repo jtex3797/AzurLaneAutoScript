@@ -21,11 +21,18 @@ NEWS_API = "https://www.azurlane.jp/api/news/list"
 NEWS_PARAMS = {"index": 1, "size": 3, "type": 3}
 NEWS_URL = "https://www.azurlane.jp/news/{id}"
 USER_AGENT = "ALAS-fork-maintenance-checker"
+# The same server status API the scheduler waits on (module/server_checker.py):
+# state 1 = under maintenance, anything else = up. Polled only around the
+# announced window to pin the real end to the minute.
+STATUS_API = "http://sc.shiratama.cn/server/get_state"
 JST = timezone(timedelta(hours=9))
 JP_PACKAGE = "com.YoStarJP.AzurLane"
-# Seconds. check() fetches the notice, observe() derives the status and pushes.
+# Seconds. check() fetches the notice, observe() derives the status and
+# pushes, poll_api() asks the status API around the window.
 FETCH_INTERVAL = 900
 OBSERVE_INTERVAL = 60
+API_INTERVAL = 300
+API_LEAD = 600
 SOON_SECONDS = 3600
 # A notice without the "finished" title suffix stays in_progress this long
 # past its announced end before it counts as finished (the suffix is edited
@@ -169,9 +176,14 @@ def parse_notice(item):
         return None
 
 
-def derive(notice, now, fetched, supported=True):
+def derive(notice, now, fetched, supported=True, api_down=False, api_finished_at=None):
     """
     Pure status rule, see the plan. Markers refine the label and colour.
+
+    Args:
+        api_down (bool): the status API currently reports maintenance.
+        api_finished_at (datetime | None): the status API saw the server
+            come back after being down for this window.
 
     Returns:
         tuple[str, str]: (status, marker)
@@ -183,7 +195,13 @@ def derive(notice, now, fetched, supported=True):
     start, end = notice["start"], notice["end"]
     if now > end + timedelta(seconds=FINISHED_SHOW_SECONDS):
         return "none", "none"
-    if notice["finished_by_title"] or now > end + timedelta(seconds=END_GRACE_SECONDS):
+    if notice["finished_by_title"] or api_finished_at is not None:
+        return "finished", "finished"
+    if api_down:
+        # The server is really down: in progress whatever the clock says,
+        # also past the grace period (the completion notice comes late)
+        return "in_progress", ("overdue" if now > end else "in_progress")
+    if now > end + timedelta(seconds=END_GRACE_SECONDS):
         return "finished", "finished"
     if now < start:
         if start - now <= timedelta(seconds=SOON_SECONDS):
@@ -192,57 +210,6 @@ def derive(notice, now, fetched, supported=True):
     if now > end:
         return "in_progress", "overdue"
     return "in_progress", "in_progress"
-
-
-def _local(dt, fmt):
-    return dt.astimezone().strftime(fmt)
-
-
-def _day(dt):
-    local = dt.astimezone()
-    return f"{local.month}/{local.day}({WEEKDAYS_KO[local.weekday()]})"
-
-
-def _hm(dt):
-    return _local(dt, "%H:%M")
-
-
-def aside_label(status, marker, notice, now):
-    """
-    Two-line label of the aside entry. alas-fork.css renders the line break
-    with `white-space: pre-line`.
-    """
-    if status == "unsupported":
-        return ""
-    if status == "unknown":
-        return "공지 확인 중" if marker == "loading" else "공지 확인 실패"
-    if status == "none":
-        return "점검 없음"
-    start, end = notice["start"], notice["end"]
-    if status == "scheduled":
-        if marker == "soon":
-            return f"곧 점검\n{_hm(start)}~{_hm(end)}"
-        return f"점검 예정\n{_local(start, '%m/%d %H:%M')}"
-    if status == "in_progress":
-        if marker == "overdue":
-            return f"점검 중\n{_hm(end)} 지남"
-        return f"점검 중\n~{_hm(end)} 대기"
-    # finished
-    if now.astimezone().date() != end.astimezone().date():
-        return f"{_local(end, '%m/%d')}" + chr(10) + "점검 종료"
-    if notice["finished_by_title"]:
-        return "점검 종료\n완료 공지"
-    return f"점검 종료\n(예정 {_hm(end)})"
-
-
-def window_text(notice):
-    """
-    '10/8(목) 14:00 ~ 20:00' or with the end date when it differs.
-    """
-    start, end = notice["start"], notice["end"]
-    if start.astimezone().date() == end.astimezone().date():
-        return f"{_day(start)} {_hm(start)} ~ {_hm(end)}"
-    return f"{_day(start)} {_hm(start)} ~ {_day(end)} {_hm(end)}"
 
 
 def toast_plan(prev, state):
@@ -272,6 +239,69 @@ def toast_plan(prev, state):
     return None
 
 
+def _local(dt, fmt):
+    return dt.astimezone().strftime(fmt)
+
+
+def _day(dt):
+    local = dt.astimezone()
+    return f"{local.month}/{local.day}({WEEKDAYS_KO[local.weekday()]})"
+
+
+def _hm(dt):
+    return _local(dt, "%H:%M")
+
+
+def aside_label(status, marker, notice, now, finished_at=None):
+    """
+    Two-line label of the aside entry. alas-fork.css renders the line break
+    with `white-space: pre-line`.
+
+    Args:
+        finished_at (datetime | None): real end seen by the status API.
+    """
+    if status == "unsupported":
+        return ""
+    if status == "unknown":
+        return "공지 확인 중" if marker == "loading" else "공지 확인 실패"
+    if status == "none":
+        return "점검 없음"
+    start, end = notice["start"], notice["end"]
+    if status == "scheduled":
+        if marker == "soon":
+            return f"곧 점검\n{_hm(start)}~{_hm(end)}"
+        return f"점검 예정\n{_local(start, '%m/%d %H:%M')}"
+    if status == "in_progress":
+        if marker == "overdue":
+            return f"점검 중\n{_hm(end)} 지남"
+        return f"점검 중\n~{_hm(end)} 대기"
+    # finished
+    if now.astimezone().date() != end.astimezone().date():
+        return f"{_local(end, '%m/%d')}" + chr(10) + "점검 종료"
+    if finished_at is not None:
+        return f"점검 종료\n{_hm(finished_at)}"
+    if notice["finished_by_title"]:
+        return "점검 종료\n완료 공지"
+    return f"점검 종료\n(예정 {_hm(end)})"
+
+
+def window_text(notice):
+    """
+    '10/8(목) 14:00 ~ 20:00' or with the end date when it differs.
+    """
+    start, end = notice["start"], notice["end"]
+    if start.astimezone().date() == end.astimezone().date():
+        return f"{_day(start)} {_hm(start)} ~ {_hm(end)}"
+    return f"{_day(start)} {_hm(start)} ~ {_day(end)} {_hm(end)}"
+
+
+def _parse_iso(value):
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except Exception:
+        return None
+
+
 class MaintenanceChecker:
     """
     Fork module: tells the GUI about the official JP maintenance window.
@@ -279,8 +309,12 @@ class MaintenanceChecker:
     check() runs every FETCH_INTERVAL on the global TaskHandler and fetches
     the newest maintenance notice; observe() runs every OBSERVE_INTERVAL,
     derives the status from the clock, persists transitions and sends the
-    push notifications. Both must never raise: TaskHandler.loop() removes a
-    task that raises, for good.
+    push notifications; poll_api() runs every API_INTERVAL and, only from
+    API_LEAD before the announced start until END_GRACE_SECONDS after the
+    announced end, asks the server status API so the real end is known to
+    the minute ("down, then up again" = finished; down again = extension).
+    All three must never raise: TaskHandler.loop() removes a task that
+    raises, for good.
 
     Only JP instances are supported (the notice source is azurlane.jp).
     """
@@ -291,6 +325,13 @@ class MaintenanceChecker:
         self.error = None
         self.latest_unparsed = None
         self.instances = []
+        # Status API, see poll_api(). api_seen_down_at / finished_at /
+        # api_round are persisted with the notice they belong to.
+        self.api_server = None
+        self.api_state = None
+        self.api_seen_down_at = None
+        self.finished_at = None
+        self.api_round = 0
         self._state_file = state_file
         self._record = self._state_load()
         self._lock = threading.Lock()
@@ -298,6 +339,7 @@ class MaintenanceChecker:
         self._config_mtimes = {}
         self._config_cache = {}
         self._error_logged = False
+        self._api_error_logged = False
 
     # Clock, replaced by the smoke test wrapper
     def _now(self):
@@ -325,6 +367,27 @@ class MaintenanceChecker:
                 self._observe(self._now())
             except Exception as e:
                 logger.warning(f"maintenance_checker: observe failed, {e!r}")
+
+    def poll_api(self):
+        """
+        One status API request when inside the window. The HTTP call runs
+        outside the lock (up to 15 s) so observe() is not held up; the
+        answer is dropped if the notice changed meanwhile.
+        """
+        try:
+            with self._lock:
+                target = self._api_target(self._now())
+            if target is None:
+                return
+            notice_id, end_iso, server = target
+            result = self._fetch_api_state(server)
+            with self._lock:
+                notice = self.notice
+                if notice is None or notice["id"] != notice_id or notice["end"].isoformat() != end_iso:
+                    return
+                self._apply_api(result)
+        except Exception as e:
+            logger.warning(f"maintenance_checker: poll_api failed, {e!r}")
 
     def recheck(self):
         """
@@ -373,6 +436,7 @@ class MaintenanceChecker:
             except Exception as e:
                 logger.warning(f"maintenance_checker: skip instance {name}, {e!r}")
         self.instances = found
+        self.api_server = next((i["server"] for i in found if i["server"] != "JP"), None)
 
     @staticmethod
     def _server_label(server):
@@ -393,7 +457,7 @@ class MaintenanceChecker:
         for index, item in enumerate(rows[:NEWS_PARAMS["size"]]):
             notice = parse_notice(item)
             if notice is not None:
-                self.notice = notice
+                self._set_notice(notice)
                 self._error_logged = False
                 return
             title = parse_title(item.get("title"))
@@ -411,6 +475,26 @@ class MaintenanceChecker:
         self.notice = None
         self.error = "no parseable notice"
         self._warn_once("no parseable notice in the newest rows")
+
+    def _set_notice(self, notice):
+        """
+        Keep the API fields across restarts for the same (id, end); a new
+        notice or a moved end starts a new round.
+        """
+        previous = self.notice
+        self.notice = notice
+        if previous is not None and previous["id"] == notice["id"] and previous["end"] == notice["end"]:
+            return
+        record = self._record
+        if record.get("notice_id") == notice["id"] and record.get("end") == notice["end"].isoformat():
+            self.api_seen_down_at = record.get("api_seen_down_at")
+            self.finished_at = _parse_iso(record.get("finished_at"))
+            self.api_round = int(record.get("api_round") or 0)
+        else:
+            self.api_seen_down_at = None
+            self.finished_at = None
+            self.api_round = 0
+        self.api_state = None
 
     def _get_rows(self):
         try:
@@ -439,10 +523,85 @@ class MaintenanceChecker:
             logger.warning(f"maintenance_checker: {text}")
             self._error_logged = True
 
+    # ---------- status API ----------
+
+    def _api_target(self, now):
+        """
+        Returns:
+            tuple | None: (notice id, end iso, server name) while inside
+                [start - API_LEAD, end + END_GRACE_SECONDS], else None.
+        """
+        notice = self.notice
+        if notice is None or not self.api_server:
+            return None
+        if now < notice["start"] - timedelta(seconds=API_LEAD):
+            return None
+        if now > notice["end"] + timedelta(seconds=END_GRACE_SECONDS):
+            return None
+        return notice["id"], notice["end"].isoformat(), self.api_server
+
+    def _fetch_api_state(self, server):
+        """
+        Returns:
+            tuple[int, int] | None: (state, last_update epoch seconds)
+        """
+        try:
+            session = requests.Session()
+            session.trust_env = False
+            resp = session.post(STATUS_API, params={"server_name": server}, timeout=(5, 10))
+            if resp.status_code != 200:
+                raise ValueError(f"status {resp.status_code}")
+            data = resp.json()
+            state = int(data["state"])
+            last_update = float(data["last_update"])
+            if last_update > 1e11:
+                # milliseconds
+                last_update /= 1000
+            self._api_error_logged = False
+            return state, int(last_update)
+        except Exception as e:
+            if not self._api_error_logged:
+                logger.warning(f"maintenance_checker: status api failed, {e!r}")
+                self._api_error_logged = True
+            return None
+
+    def _apply_api(self, result):
+        if result is None:
+            self.api_state = None
+            return
+        state, last_update = result
+        self.api_state = state
+        if state == 1:
+            if self.api_seen_down_at is None or self.finished_at is not None:
+                if self.finished_at is not None:
+                    # Down again after an observed end: an extension
+                    self.api_round += 1
+                self.api_seen_down_at = last_update
+                self.finished_at = None
+        elif (self.finished_at is None and self.api_seen_down_at is not None
+              and last_update > self.api_seen_down_at):
+            self.finished_at = datetime.fromtimestamp(last_update, JST)
+        if self._record.get("status") is not None:
+            # observe() only saves on transitions; the API fields change
+            # without one, so save them here (not before the first
+            # observation, which must stay "fresh")
+            self._record.update(self._api_record())
+            self._state_save()
+
+    def _api_record(self):
+        return {
+            "api_seen_down_at": self.api_seen_down_at,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "api_round": self.api_round,
+        }
+
     # ---------- status ----------
 
     def _derive(self, now):
-        return derive(self.notice, now, self.fetched_at is not None, self.supported)
+        return derive(
+            self.notice, now, self.fetched_at is not None, self.supported,
+            api_down=self.api_state == 1, api_finished_at=self.finished_at,
+        )
 
     @property
     def status(self):
@@ -458,7 +617,7 @@ class MaintenanceChecker:
         try:
             now = self._now()
             status, marker = self._derive(now)
-            return status, aside_label(status, marker, self.notice, now), marker
+            return status, aside_label(status, marker, self.notice, now, self.finished_at), marker
         except Exception as e:
             logger.warning(f"maintenance_checker: snapshot failed, {e!r}")
             return "unknown", "공지 확인 실패", "unknown"
@@ -484,7 +643,7 @@ class MaintenanceChecker:
         notice_id = self.notice["id"] if self.notice else None
         end_iso = self.notice["end"].isoformat() if self.notice else None
         record = self._record
-        fresh = not record
+        fresh = record.get("status") is None
         same_notice = record.get("notice_id") == notice_id
         prev_status = record.get("status") if same_notice else None
         pushed = list(record.get("pushed", [])) if same_notice else []
@@ -502,7 +661,7 @@ class MaintenanceChecker:
             # First observation of a GUI without a state file (deployment,
             # first start): record only, so last week's notice stays quiet.
             kind = None
-        key = f"{status}@{end_iso}"
+        key = f"{status}@{end_iso}@{self.api_round}"
         if kind and key not in pushed:
             pushed.append(key)
             self._push(kind)
@@ -513,6 +672,7 @@ class MaintenanceChecker:
             "pushed": pushed,
             "updated_at": now.isoformat(),
         }
+        self._record.update(self._api_record())
         self._state_save()
 
     # ---------- push ----------
@@ -526,6 +686,8 @@ class MaintenanceChecker:
             title = f"벽람 점검 시작, {end}까지 대기"
         elif kind == "extended":
             title = f"벽람 점검 연장, {end}까지 대기"
+        elif self.finished_at is not None:
+            title = f"벽람 점검 종료 {_hm(self.finished_at)}"
         else:
             title = "벽람 점검 종료"
         jobs = []
@@ -591,10 +753,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Fetch the JP maintenance notice once and print it")
     parser.add_argument("--once", action="store_true", help="fetch and print, no state file, no push")
+    parser.add_argument("--api", action="store_true", help="also query the server status API once and print the raw answer")
     args = parser.parse_args()
     probe = MaintenanceChecker(state_file=None)
     probe._scan_instances()
-    print("instances:", [(i["name"], i["server"], bool(i["push"])) for i in probe.instances])
+    print("instances:", [(i["name"], i["server"], probe._has_provider(i["push"])) for i in probe.instances])
+    print("api_server:", probe.api_server)
     probe._fetch_notice()
     print("error:", probe.error)
     if probe.notice:
@@ -602,5 +766,12 @@ if __name__ == "__main__":
         print(f"notice {n['id']}: {n['title']}")
         print(f"window: {window_text(n)} JST ({n['start'].isoformat()} ~ {n['end'].isoformat()})")
         print(f"finished_by_title={n['finished_by_title']} extended={n['extended']}")
-    status, marker = derive(probe.notice, probe._now(), True, True)
+    status, marker = probe._derive(probe._now())
     print(f"status now: {status} ({marker}) label={aside_label(status, marker, probe.notice, probe._now())!r}")
+    if args.api and probe.api_server:
+        session = requests.Session()
+        session.trust_env = False
+        resp = session.post(STATUS_API, params={"server_name": probe.api_server}, timeout=(5, 10))
+        print("status api raw:", resp.status_code, resp.text[:200])
+        print("parsed:", probe._fetch_api_state(probe.api_server))
+        print("in window now:", probe._api_target(probe._now()) is not None)

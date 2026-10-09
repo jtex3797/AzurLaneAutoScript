@@ -314,7 +314,7 @@ def test_observe_transitions_and_dedup():
     # The state file survives a restart and is no longer "fresh"
     c2 = ObserveStub(state_file)
     assert c2._record["notice_id"] == 768
-    assert "finished@2026-10-08T21:00:00+09:00" in c2._record["pushed"]
+    assert "finished@2026-10-08T21:00:00+09:00@0" in c2._record["pushed"]
 
 
 def test_observe_fresh_then_scheduled_to_in_progress_pushes():
@@ -346,6 +346,159 @@ def test_observe_never_raises():
     c.observe()  # swallowed
     assert c.snapshot()[0] == "unknown"
     assert c.toast_state()[1] == "unknown"
+
+
+# ---------- status API (stage C) ----------
+
+def test_derive_api():
+    notice = live_notice(jst(2026, 10, 8, 14, 0), jst(2026, 10, 8, 20, 0))
+    # API says down before the announced start: already in progress
+    assert derive(notice, jst(2026, 10, 8, 13, 50), True, api_down=True) == ("in_progress", "in_progress")
+    # API still down past the grace period: stays overdue, not finished
+    late = jst(2026, 10, 8, 20, 0) + timedelta(seconds=END_GRACE_SECONDS + 600)
+    assert derive(notice, late, True, api_down=True) == ("in_progress", "overdue")
+    assert derive(notice, late, True) == ("finished", "finished")
+    # API saw the server come back: finished whatever the clock says
+    assert derive(notice, jst(2026, 10, 8, 19, 56), True, api_finished_at=jst(2026, 10, 8, 19, 54)) == (
+        "finished", "finished")
+    # Title suffix wins over a down reading
+    done = live_notice(jst(2026, 10, 8, 14, 0), jst(2026, 10, 8, 20, 0), finished=True)
+    assert derive(done, jst(2026, 10, 8, 15, 0), True, api_down=True) == ("finished", "finished")
+
+
+class ApiStub(ObserveStub):
+    def __init__(self, state_file, answers=()):
+        super().__init__(state_file)
+        self.answers = list(answers)
+        self.calls = 0
+        self.api_server = "若松"
+        self.swap_notice_during_http = None
+
+    def _fetch_api_state(self, server):
+        self.calls += 1
+        if self.swap_notice_during_http is not None:
+            self.notice = self.swap_notice_during_http
+        return self.answers.pop(0) if self.answers else None
+
+
+def epoch(dt):
+    return int(dt.timestamp())
+
+
+def test_poll_api_end_detection_extension_and_second_end():
+    state_file = os.path.join(SCRATCH, "fork_maintenance_api.json")
+    c = ApiStub(state_file)
+    start, end = jst(2026, 10, 8, 14, 0), jst(2026, 10, 8, 20, 0)
+    c.notice = live_notice(start, end)
+
+    # Before the window: no HTTP at all
+    c.clock = jst(2026, 10, 8, 13, 0)
+    c.poll_api()
+    assert c.calls == 0
+
+    # First observation while running: recorded only (fresh)
+    c.clock = jst(2026, 10, 8, 14, 5)
+    c.observe()
+    assert c.pushes == []
+
+    # Down reading
+    c.answers = [(1, epoch(jst(2026, 10, 8, 14, 4)))]
+    c.poll_api()
+    assert c.calls == 1 and c.api_state == 1 and c.api_seen_down_at == epoch(jst(2026, 10, 8, 14, 4))
+    c.observe()
+    assert c.pushes == []
+
+    # Up again at 19:54 with a newer last_update: finished at that minute
+    c.clock = jst(2026, 10, 8, 19, 55)
+    c.answers = [(3, epoch(jst(2026, 10, 8, 19, 54)))]
+    c.poll_api()
+    assert c.finished_at == jst(2026, 10, 8, 19, 54)
+    assert c._derive(c.clock) == ("finished", "finished")
+    c.observe()
+    assert c.pushes[-1][0] == "finish"
+    assert c.snapshot()[1] == "점검 종료\n19:54"
+    saved = json.load(open(state_file, encoding="utf-8"))
+    assert saved["finished_at"] == jst(2026, 10, 8, 19, 54).isoformat() and saved["api_round"] == 0
+
+    # Down again at 20:09: extension, new round, extended push
+    c.clock = jst(2026, 10, 8, 20, 10)
+    c.answers = [(1, epoch(jst(2026, 10, 8, 20, 9)))]
+    c.poll_api()
+    assert c.finished_at is None and c.api_round == 1
+    c.observe()
+    assert c.pushes[-1][0] == "extended"
+    assert c._derive(c.clock) == ("in_progress", "overdue")
+
+    # Up again at 20:39: second finish push, not blocked by the first key
+    c.clock = jst(2026, 10, 8, 20, 40)
+    c.answers = [(3, epoch(jst(2026, 10, 8, 20, 39)))]
+    c.poll_api()
+    c.observe()
+    assert [p[0] for p in c.pushes] == ["finish", "extended", "finish"]
+
+    # Past end + grace: polling stops
+    c.clock = end + timedelta(seconds=END_GRACE_SECONDS + 60)
+    calls = c.calls
+    c.poll_api()
+    assert c.calls == calls
+
+    # An up reading not newer than the down reading is ignored
+    c2 = ApiStub(os.path.join(SCRATCH, "fork_maintenance_api2.json"))
+    c2.notice = live_notice(start, end)
+    c2.clock = jst(2026, 10, 8, 14, 5)
+    c2.answers = [(1, 1000), (3, 1000)]
+    c2.poll_api()
+    c2.poll_api()
+    assert c2.finished_at is None
+
+
+def test_poll_api_drops_answer_when_notice_changed():
+    c = ApiStub(os.path.join(SCRATCH, "fork_maintenance_api3.json"))
+    c.notice = live_notice(jst(2026, 10, 8, 14, 0), jst(2026, 10, 8, 20, 0))
+    c.clock = jst(2026, 10, 8, 15, 0)
+    c.answers = [(1, epoch(jst(2026, 10, 8, 14, 59)))]
+    c.swap_notice_during_http = live_notice(jst(2026, 10, 15, 14, 0), jst(2026, 10, 15, 20, 0), item_id=770)
+    c.poll_api()
+    assert c.api_seen_down_at is None and c.api_state is None
+
+
+def test_state_file_api_roundtrip():
+    state_file = os.path.join(SCRATCH, "fork_maintenance_api4.json")
+    c = ApiStub(state_file)
+    start, end = jst(2026, 10, 8, 14, 0), jst(2026, 10, 8, 20, 0)
+    c.notice = live_notice(start, end)
+    c.clock = jst(2026, 10, 8, 14, 5)
+    c.observe()
+    c.answers = [(1, epoch(jst(2026, 10, 8, 14, 4))), (3, epoch(jst(2026, 10, 8, 19, 54)))]
+    c.poll_api()
+    c.clock = jst(2026, 10, 8, 19, 55)
+    c.poll_api()
+    assert c.finished_at is not None
+
+    # Same (id, end) after a restart: restored
+    c2 = ApiStub(state_file)
+    c2._set_notice(live_notice(start, end))
+    assert c2.finished_at == jst(2026, 10, 8, 19, 54) and c2.api_seen_down_at == epoch(jst(2026, 10, 8, 14, 4))
+    # Moved end: new round, nothing restored
+    c3 = ApiStub(state_file)
+    c3._set_notice(live_notice(start, jst(2026, 10, 8, 21, 0)))
+    assert c3.finished_at is None and c3.api_seen_down_at is None and c3.api_round == 0
+    # Old-format file without the API keys
+    old = os.path.join(SCRATCH, "fork_maintenance_old.json")
+    with open(old, "w", encoding="utf-8") as f:
+        json.dump({"notice_id": 767, "status": "finished", "end": end.isoformat(), "pushed": []}, f)
+    c4 = ApiStub(old)
+    c4._set_notice(live_notice(start, end))
+    assert c4.finished_at is None and c4.api_round == 0
+
+
+def test_aside_label_finished_at():
+    notice = live_notice(jst(2026, 10, 8, 14, 0), jst(2026, 10, 8, 20, 0))
+    now = jst(2026, 10, 8, 20, 30)
+    assert aside_label("finished", "finished", notice, now, finished_at=jst(2026, 10, 8, 19, 54)) == "점검 종료\n19:54"
+    assert aside_label("finished", "finished", notice, now) == "점검 종료\n(예정 20:00)"
+    assert aside_label("finished", "finished", notice, jst(2026, 10, 9, 9, 0), finished_at=jst(2026, 10, 8, 19, 54)).endswith(
+        "점검 종료")
 
 
 if __name__ == "__main__":

@@ -71,7 +71,7 @@ from module.webui.fork_widgets import (ICON_START, ICON_STOP, IconSwitchButton,
                                        show_workflow_status_popup, workflow_toast_text)
 from module.webui.instance_watchdog import instance_watchdog
 from module.webui.workflow_checker import workflow_checker
-from module.webui.maintenance_checker import FETCH_INTERVAL, OBSERVE_INTERVAL, maintenance_checker
+from module.webui.maintenance_checker import API_INTERVAL, FETCH_INTERVAL, OBSERVE_INTERVAL, maintenance_checker
 from module.webui.utils import (
     Icon,
     Switch,
@@ -1553,6 +1553,7 @@ def startup():
     task_handler.add(instance_watchdog.check, 60)
     task_handler.add(maintenance_checker.check, FETCH_INTERVAL)
     task_handler.add(maintenance_checker.observe, OBSERVE_INTERVAL)
+    task_handler.add(maintenance_checker.poll_api, API_INTERVAL)
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:
         init_discord_rpc()

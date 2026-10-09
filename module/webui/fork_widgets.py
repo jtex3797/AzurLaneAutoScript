@@ -314,6 +314,7 @@ def _put_maintenance_status():
     fetched_at = maintenance_checker.fetched_at
     error = maintenance_checker.error
     unparsed = maintenance_checker.latest_unparsed
+    finished_at = maintenance_checker.finished_at
     instances = list(maintenance_checker.instances)
 
     with use_scope(MAINT_POPUP_SCOPE, clear=True):
@@ -322,6 +323,8 @@ def _put_maintenance_status():
             put_text(f"실시 시간: {window_text(notice)} (일본 시간 = 한국 시간)")
             flag = " [연장 공지]" if notice["extended"] else ""
             put_text(f"공지: {notice['title']}{flag}")
+            if finished_at is not None:
+                put_text(f"종료 시각 {finished_at.astimezone().strftime('%H:%M')} (서버 상태 API)")
         put_text(f"마지막 공지 확인: {_local(fetched_at)}")
         if error:
             put_text(f"공지 가져오기 실패: {error}")
