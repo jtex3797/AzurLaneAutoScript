@@ -82,10 +82,11 @@
     color: #da3633;
 }
 
-#pywebio-scope-aside_maintenance div[style*="--fork-maint-overdue--"] .aside-icon > path,
+/* Overdue icon keeps its wrench inside a <g>, so a descendant selector */
+#pywebio-scope-aside_maintenance div[style*="--fork-maint-overdue--"] .aside-icon path,
 #pywebio-scope-aside_maintenance div[style*="--fork-maint-overdue--"] .btn-aside {
-    fill: #f0883e;
-    color: #f0883e;
+    fill: #a371f7;
+    color: #a371f7;
 }
 
 #pywebio-scope-aside_maintenance div[style*="--fork-maint-finished--"] .aside-icon > path,

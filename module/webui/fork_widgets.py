@@ -219,11 +219,30 @@ def _recheck():
 
 MAINT_POPUP_SCOPE = "fork_maintenance_status"
 # Wrench in the same ring as the other fork icons
+_WRENCH = (
+    'M700 286a150 150 0 0 0-196 180L300 670l54 54 204-204a150 150 0 0 0'
+    ' 180-196l-84 84-72-14-14-72z'
+)
 ICON_MAINT = (
     '<svg class="aside-icon icon-maint" viewBox="0 0 1024 1024" version="1.1"'
     ' xmlns="http://www.w3.org/2000/svg">' + _RING +
-    '<path d="M700 286a150 150 0 0 0-196 180L300 670l54 54 204-204a150 150 0 0 0'
-    ' 180-196l-84 84-72-14-14-72z"></path></svg>'
+    '<path d="' + _WRENCH + '"></path></svg>'
+)
+# Past the announced end without a completion notice: a double ring (outer
+# r448/48 + inner r352/40 in one evenodd path) around a smaller wrench, so
+# it differs from the plain in-progress ring in shape, not only in colour.
+# The wrench sits in a <g transform>, so alas-fork.css colours this icon
+# with a descendant selector (`.aside-icon path`), not `> path`.
+_RING_DOUBLE = (
+    '<path fill-rule="evenodd" d="M512 64a448 448 0 1 1 0 896a448 448 0 1 1'
+    ' 0-896z m0 48a400 400 0 1 0 0 800a400 400 0 1 0 0-800z'
+    ' M512 160a352 352 0 1 1 0 704a352 352 0 1 1 0-704z'
+    ' m0 40a312 312 0 1 0 0 624a312 312 0 1 0 0-624z"></path>'
+)
+ICON_MAINT_OVERDUE = (
+    '<svg class="aside-icon icon-maint-overdue" viewBox="0 0 1024 1024" version="1.1"'
+    ' xmlns="http://www.w3.org/2000/svg">' + _RING_DOUBLE +
+    '<g transform="translate(128 128) scale(0.75)"><path d="' + _WRENCH + '"></path></g></svg>'
 )
 
 
@@ -255,7 +274,7 @@ class MaintenanceAsideLine(Switch):
                 if status == "unsupported":
                     return
                 put_icon_buttons(
-                    ICON_MAINT,
+                    ICON_MAINT_OVERDUE if marker == "overdue" else ICON_MAINT,
                     buttons=[{"label": label, "value": "fork:maint", "color": "aside"}],
                     onclick=[show_maintenance_popup],
                 ).style(f"--fork-maint-{marker}--")
