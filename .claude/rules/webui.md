@@ -34,7 +34,9 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   to keep an instance stopped. On/off lives in `config/fork.yaml` (`ManualStopAutoResume`, gitignored, on by
   default) and is switched by the aside toggle through `set_manual_resume()`.
   Log-only notification (lands in `*_gui.txt`). `check()` must never raise (same TaskHandler contract).
-  Registered every 60 s in `startup()`.
+  Registered every 60 s in `startup()`. Both automatic starts pass `_emulator_gate()` first: while
+  `module/webui/emulator_probe.py` (process list, no adb) says the instance's emulator is off, the start is
+  skipped with one warning and retried every tick, plus a 120 s boot settle after it is back (see recovery.md).
 - `module/webui/maintenance_checker.py`: official JP maintenance notice in the GUI. Every 15 min `check()` reads
   `azurlane.jp/api/news/list?type=3` (newest row first; `■実施時間` window parsed after NFKC, year from `publishTime`,
   `完了|終了` in the title = finished; a newest row that is live but unparsable gives `unknown`, never last week's

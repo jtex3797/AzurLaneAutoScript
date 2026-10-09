@@ -44,6 +44,12 @@ Left out on purpose
 - No emulator restart. With an `emulator-*` serial, `Device.__init__` never raises `EmulatorNotRunningError`,
   `emulator_start_watch()` waits for the `127.0.0.1:*` serial that adb never lists, and the BlueStacks5 stop
   pattern expects quoted arguments that psutil does not return. Needs a run against the real emulator first.
+  What exists instead (2026-10-09): `module/webui/emulator_probe.py` judges from the process list whether the
+  instance's emulator is running (`Alas.EmulatorInfo.path` executable name, BlueStacks5 `--instance <name>`
+  argument; adb is not used because an `emulator-*` entry is only picked up when the adb server starts), and
+  `instance_watchdog._emulator_gate()` skips the crash restart and the manual-stop resume while it says off,
+  then waits `BOOT_SETTLE_SECONDS` (120 s) after it is back. Budget, grace and the 30 min count are untouched,
+  so the start happens on the next tick. Unknown verdicts (no psutil, no EmulatorInfo) keep the old behaviour.
 - No handler for the defeat pages inside auto search (upstream combat code).
 - No "emulator window not focused" rule for the manual-stop resume (tried, then removed). The user often runs
   auto battles by hand while working in other windows, so an unfocused emulator does not mean nobody plays.

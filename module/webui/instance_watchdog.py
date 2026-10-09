@@ -9,6 +9,7 @@ import yaml
 from rich.console import Console
 
 from module.logger import logger
+from module.webui.emulator_probe import emulator_running
 from module.webui.process_manager import ProcessManager
 from module.webui.updater import updater
 
@@ -19,6 +20,9 @@ RESTART_WINDOW_SECONDS = 6 * 3600
 # and the PC had no keyboard or mouse input for MANUAL_IDLE_SECONDS.
 MANUAL_RESUME_SECONDS = 1800
 MANUAL_IDLE_SECONDS = 600
+# After the emulator comes back from "off", wait this long before any
+# automatic start: the player process shows up before Android has booted.
+BOOT_SETTLE_SECONDS = 120
 MANUAL_STOP_FILE = "./log/fork_manual_stop.json"
 # On/off of that resume, switched by the toggle below the aside start/stop
 # button (fork_widgets.py). Gitignored, so it survives updates.
@@ -80,6 +84,13 @@ class InstanceWatchdog:
     permanently removes a task that raises, which would silently kill this
     watchdog until GUI restart.
 
+    Emulator gate: no automatic start (crash restart or manual-stop resume)
+    while module/webui/emulator_probe.py says the instance's emulator is
+    off; nothing else changes, so the start happens on the first tick after
+    the emulator is back (plus BOOT_SETTLE_SECONDS). Judged from the process
+    list only: a hung emulator counts as running, the emulator is never
+    started by the watchdog, and an unknown verdict keeps the old behaviour.
+
     Known limitations:
     - Pressing Stop on an already-dead instance writes no "Manual stop"
       sentinel (ProcessManager.stop() only writes it while alive), so such
@@ -104,6 +115,10 @@ class InstanceWatchdog:
         self._tracked = {}
         # config_name -> time.time() the manual stop was first seen
         self._manual = {}
+        # config_name -> time.monotonic() the emulator was first seen off,
+        # and the moment it was first seen back (boot settle timer)
+        self._deferred = {}
+        self._up_since = {}
         if os.path.exists(RELOAD_FILE):
             self._manual = self._manual_load()
         else:
@@ -189,6 +204,7 @@ class InstanceWatchdog:
             self._tracked[pm.config_name] = rec
             # Started in this GUI session, a carried over stop is history
             self._manual_forget(pm.config_name)
+            self._undefer(pm.config_name, quiet=True)
 
         if rec["proc_ref"]() is not proc:
             # A start this watchdog did not perform (it updates proc_ref
@@ -201,6 +217,7 @@ class InstanceWatchdog:
             rec["gave_up"] = False
             # Also when it was started and stopped again between two ticks
             self._manual_forget(pm.config_name)
+            self._undefer(pm.config_name, quiet=True)
             logger.info(
                 f"instance_watchdog: [{pm.config_name}] started externally, watchdog re-armed"
             )
@@ -209,6 +226,7 @@ class InstanceWatchdog:
         if pm.alive:
             rec["state3_since"] = None
             self._manual_forget(pm.config_name)
+            self._undefer(pm.config_name, quiet=True)
             return
         sentinel = self._last_sentinel(pm)
         if sentinel == SENTINEL_MANUAL:
@@ -247,7 +265,51 @@ class InstanceWatchdog:
                 f"manual start or cooldown"
             )
             return
+        if not self._emulator_gate(pm.config_name):
+            return
         self._restart(pm, rec, now)
+
+    def _emulator_gate(self, name):
+        """
+        Gate in front of every automatic start. With an `emulator-*` serial
+        Alas never starts the emulator itself, so starting the scheduler while
+        the emulator is off just burns the restart budget.
+
+        Returns:
+            bool: False while the instance's emulator is known to be off, or
+                came back less than BOOT_SETTLE_SECONDS ago (Android is still
+                booting); the caller skips its start this tick and tries again
+                next tick, nothing else changes. Unknown (no EmulatorInfo, no
+                psutil, probe errors) is True, i.e. the old behaviour.
+        """
+        try:
+            running = emulator_running(name)
+        except Exception as e:
+            logger.warning(f"instance_watchdog: [{name}] emulator probe failed, {e!r}")
+            running = None
+        now = time.monotonic()
+        if running is False:
+            if name not in self._deferred:
+                self._deferred[name] = now
+                logger.warning(
+                    f"instance_watchdog: [{name}] emulator not running, "
+                    f"auto start deferred until it is started"
+                )
+            self._up_since.pop(name, None)
+            return False
+        if name in self._deferred:
+            since = self._up_since.setdefault(name, now)
+            if running is True and now - since < BOOT_SETTLE_SECONDS:
+                return False
+            self._undefer(name)
+        return True
+
+    def _undefer(self, name, quiet=False):
+        self._up_since.pop(name, None)
+        if self._deferred.pop(name, None) is None:
+            return
+        if not quiet:
+            logger.info(f"instance_watchdog: [{name}] emulator back, auto start resumes")
 
     def _restart(self, pm, rec, now):
         # Same per-config lock stop() uses, so we never race a Stop click.
@@ -296,6 +358,10 @@ class InstanceWatchdog:
             )
             return
         if now - since < MANUAL_RESUME_SECONDS:
+            return
+        # Before the idle check, so the verdict refreshes every tick and a
+        # deferral ends as soon as the emulator is back
+        if not self._emulator_gate(name):
             return
         idle = idle_seconds()
         if idle is None or idle < MANUAL_IDLE_SECONDS:
