@@ -2,12 +2,14 @@
 Unit tests of the emulator gate in module/webui/instance_watchdog.py (fork).
 
 The watchdog is loaded with stub `module.webui.process_manager` and
-`module.webui.updater` modules (recipe in .claude/rules/recovery.md), a fake
+`module.webui.updater` modules (recipe in .claude/rules/recovery.md), a stub
+`module.webui.fork_taskbar_alert` that swallows every alert call, a fake
 clock on its `time` name and patched `idle_seconds` / `emulator_running`.
 
 Order matters: importing module.logger chdir's into the repository root, so
 the working directory is moved to a temporary directory BEFORE the watchdog
-is imported (its import writes ./log/fork_manual_stop.json).
+is imported (its import writes ./log/fork_manual_stop.json) and AFTER
+module.webui, whose deploy.logger import chdir's to the repo root as well.
 
 Run from the repository root, no pytest needed:
     ./toolkit/python.exe -m tests.fork.test_instance_watchdog_gate
@@ -20,6 +22,7 @@ import traceback
 import types
 
 import module.logger  # noqa: F401  (chdir to repo root happens here)
+import module.webui  # noqa: F401  (deploy.logger chdir's too, see recovery.md)
 
 SCRATCH = tempfile.mkdtemp(prefix="alas_fork_watchdog_test_")
 os.chdir(SCRATCH)
@@ -62,6 +65,14 @@ sys.modules["module.webui.process_manager"] = pm_mod
 upd_mod = types.ModuleType("module.webui.updater")
 upd_mod.updater = types.SimpleNamespace(state="checking", event=None)
 sys.modules["module.webui.updater"] = upd_mod
+
+alert_mod = types.ModuleType("module.webui.fork_taskbar_alert")
+alert_mod.taskbar_alert = types.SimpleNamespace(
+    startup=lambda: None, tick=lambda: None, crashed=lambda name, repeat=False: None,
+    gave_up=lambda name: None, recovered=lambda name: None, names=lambda: [],
+    clear_all=lambda: None,
+)
+sys.modules["module.webui.fork_taskbar_alert"] = alert_mod
 
 import module.webui.instance_watchdog as wd  # noqa: E402
 

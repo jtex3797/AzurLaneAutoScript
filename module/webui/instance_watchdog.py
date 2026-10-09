@@ -13,6 +13,35 @@ from module.webui.emulator_probe import emulator_running
 from module.webui.process_manager import ProcessManager
 from module.webui.updater import updater
 
+try:
+    from module.webui.fork_taskbar_alert import taskbar_alert
+except Exception as _e:
+    # A broken alert module must never take the GUI (app.py import) down
+    class _NoAlert:
+        def startup(self):
+            pass
+
+        def tick(self):
+            pass
+
+        def crashed(self, name, repeat=False):
+            pass
+
+        def gave_up(self, name):
+            pass
+
+        def recovered(self, name):
+            pass
+
+        def names(self):
+            return []
+
+        def clear_all(self):
+            pass
+
+    taskbar_alert = _NoAlert()
+    logger.warning(f"instance_watchdog: taskbar alert unavailable, {_e!r}")
+
 GRACE_SECONDS = 600
 RESTART_LIMIT = 3
 RESTART_WINDOW_SECONDS = 6 * 3600
@@ -80,7 +109,12 @@ class InstanceWatchdog:
     an instance stopped. The whole resume is switched on and off with
     set_manual_resume(), state in SETTINGS_FILE, on by default.
 
-    Notification is log-only. check() must never raise: TaskHandler.loop()
+    Notification: log lines plus module/webui/fork_taskbar_alert.py (red
+    badge and flash on the Alas taskbar button, toast when the window is
+    hidden): crashed() on the first sighting of a crash (badge only when
+    it died right after our own restart), gave_up() when the budget is
+    spent, recovered() whenever the instance is seen alive or cleanly
+    stopped. check() must never raise: TaskHandler.loop()
     permanently removes a task that raises, which would silently kill this
     watchdog until GUI restart.
 
@@ -95,14 +129,18 @@ class InstanceWatchdog:
     - Pressing Stop on an already-dead instance writes no "Manual stop"
       sentinel (ProcessManager.stop() only writes it while alive), so such
       an instance still looks crashed and gets revived once; stopping the
-      revived instance works normally.
+      revived instance works normally. Its taskbar alert stays as well
+      until the instance runs again.
     - The updater force-stopping an instance after its 10 min wait writes
       the same sentinel, so that looks like a manual stop too.
     - A PC in use never counts as idle, so there is no resume while the
       user keeps working on it. A PC waking from sleep without input can
       resume at once, sleep time counts as idle time.
     - Crash memory (restart budget, gave-up flag) lives in this GUI
-      process and resets on GUI reload / auto-update restart.
+      process and resets on GUI reload / auto-update restart. The taskbar
+      alert survives the reload (state file restored by its startup());
+      an instance that was dead at reload time is not in config/reloadalas,
+      so its badge stays until the user starts it again.
     - Upstream ProcessManager.start() is an unlocked check-then-act, so a
       manual Start click in the same instant as an auto restart can in
       theory double-start (same pre-existing race as two browser tabs
@@ -125,6 +163,7 @@ class InstanceWatchdog:
             self._manual_save()
         # Read by the aside toggle every second, so kept in memory
         self.manual_resume = self._settings_load()
+        self._alert_started = False
 
     def set_manual_resume(self, enabled):
         """
@@ -173,6 +212,11 @@ class InstanceWatchdog:
             # Busy check by updater.state only: updater.event can stay set
             # forever after a no-reload update success, which would mute
             # the watchdog permanently if used alone.
+            if not self._alert_started:
+                # Before the busy check, so a badge carried over an
+                # update reload is restored on the very first tick
+                self._alert_started = True
+                taskbar_alert.startup()
             if updater.state in UPDATER_BUSY_STATES:
                 return
             now = time.monotonic()
@@ -190,6 +234,16 @@ class InstanceWatchdog:
                     self._check_carried(name)
                 except Exception as e:
                     logger.warning(f"instance_watchdog: [{name}] {e!r}")
+            # Alerts restored over a GUI reload belong to instances this
+            # session never started; clear them once such an instance runs.
+            for name in taskbar_alert.names():
+                try:
+                    pm = ProcessManager._processes.get(name)
+                    if name not in self._tracked and pm is not None and pm.alive:
+                        taskbar_alert.recovered(name)
+                except Exception as e:
+                    logger.warning(f"instance_watchdog: [{name}] {e!r}")
+            taskbar_alert.tick()
         except Exception as e:
             logger.warning(f"instance_watchdog: {e!r}")
 
@@ -221,21 +275,27 @@ class InstanceWatchdog:
             logger.info(
                 f"instance_watchdog: [{pm.config_name}] started externally, watchdog re-armed"
             )
+            # A start that already died again keeps its alert
+            if pm.alive:
+                taskbar_alert.recovered(pm.config_name)
             return
 
         if pm.alive:
             rec["state3_since"] = None
             self._manual_forget(pm.config_name)
             self._undefer(pm.config_name, quiet=True)
+            taskbar_alert.recovered(pm.config_name)
             return
         sentinel = self._last_sentinel(pm)
         if sentinel == SENTINEL_MANUAL:
             rec["state3_since"] = None
+            taskbar_alert.recovered(pm.config_name)
             self._check_manual_stop(pm)
             return
         self._manual_forget(pm.config_name)
         if sentinel != "":
             rec["state3_since"] = None
+            taskbar_alert.recovered(pm.config_name)
             return
 
         if rec["gave_up"]:
@@ -253,12 +313,16 @@ class InstanceWatchdog:
                 f"instance_watchdog: [{pm.config_name}] scheduler died unexpectedly, "
                 f"auto restart in {GRACE_SECONDS}s if it stays down"
             )
+            # Died again right after our own restart: badge only, the
+            # user was told at the first crash and gets told at give-up
+            taskbar_alert.crashed(pm.config_name, repeat=bool(rec["restarts"]))
             return
         if now - rec["state3_since"] < GRACE_SECONDS:
             return
         self._prune(rec, now)
         if len(rec["restarts"]) >= RESTART_LIMIT:
             rec["gave_up"] = True
+            taskbar_alert.gave_up(pm.config_name)
             logger.error(
                 f"instance_watchdog: [{pm.config_name}] auto restart limit reached "
                 f"({RESTART_LIMIT} per {RESTART_WINDOW_SECONDS // 3600}h), pausing until "
