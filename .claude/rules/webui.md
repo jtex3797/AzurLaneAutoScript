@@ -33,10 +33,30 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   `config/reloadalas` still existing at import); a GUI started by the user clears it, so closing Alas is how
   to keep an instance stopped. On/off lives in `config/fork.yaml` (`ManualStopAutoResume`, gitignored, on by
   default) and is switched by the aside toggle through `set_manual_resume()`.
-  Log-only notification (lands in `*_gui.txt`). `check()` must never raise (same TaskHandler contract).
+  Notification: log lines (`*_gui.txt`) plus the taskbar alert below. `check()` must never raise (same
+  TaskHandler contract).
   Registered every 60 s in `startup()`. Both automatic starts pass `_emulator_gate()` first: while
   `module/webui/emulator_probe.py` (process list, no adb) says the instance's emulator is off, the start is
   skipped with one warning and retried every tick, plus a 120 s boot settle after it is back (see recovery.md).
+- `module/webui/fork_taskbar_alert.py`: taskbar alert for a crashed instance, driven only by the watchdog
+  (`startup()` once on its first tick before the updater-busy check, `tick()` every tick, `crashed(name, repeat)`
+  on the first sighting of a crash, `gave_up(name)` when the restart budget is spent, `recovered(name)` on
+  alive / clean stop / external start that is alive; the import is wrapped in try/except with a no-op stub).
+  Red IDI_ERROR overlay (`ITaskbarList3::SetOverlayIcon`, ctypes COM, vtable 3 = HrInit, 18 = SetOverlayIcon,
+  all argtypes/restype explicit, hr masked with `& 0xFFFFFFFF`) plus `FlashWindowEx(FLASHW_TRAY|FLASHW_TIMERNOFG)`
+  on the Electron window, found by PID of `alas.exe` (ancestor of the GUI process, else any) + no owner + title
+  "Alas" through `EnumWindows`. Never `FindWindowW(None, "Alas")`: it returns Explorer's TabProxyWindow of a
+  browser tab. PowerShell WinRT toast (`-EncodedCommand`, PowerShell AUMID) when the window is hidden in the tray
+  or missing, and always on give-up. The badge stays until `recovered()`; a death right after the watchdog's own
+  restart (`repeat=True`) is badge-only. Window lookup runs inline, flash/overlay/toast on one daemon worker with
+  a latest-wins slot per kind (a hung Explorer must not stall the TaskHandler thread); overlay failures back off
+  60 s doubling to 30 min, each distinct error logged once. The import only captures whether `config/reloadalas`
+  exists (`RELOADED`); state lives in `log/fork_taskbar_alert.json` and `startup()` restores it after an update
+  reload (instances without `config/<name>.json` dropped) or clears a stale badge otherwise. Off switch:
+  `TaskbarAlert: false` in `config/fork.yaml`, read on every call, an unreadable file keeps the previous value
+  (`set_manual_resume()` truncates it while writing). Nothing here may raise. Manual check against the real
+  window: `./toolkit/python.exe -m module.webui.fork_taskbar_alert --demo`. Tests: `tests/fork/test_taskbar_alert.py`
+  (FakeBackend, inline), `tests/fork/test_instance_watchdog_alert.py` (stub module, call order).
 - `module/webui/maintenance_checker.py`: official JP maintenance notice in the GUI. Every 15 min `check()` reads
   `azurlane.jp/api/news/list?type=3` (newest row first; `■実施時間` window parsed after NFKC, year from `publishTime`,
   `完了|終了` in the title = finished; a newest row that is live but unparsable gives `unknown`, never last week's

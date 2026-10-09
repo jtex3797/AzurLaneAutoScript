@@ -31,7 +31,9 @@ Four layers keep the bot running without a human. Upstream `alas.py` is untouche
      weak fleet) or OpSi stall rounds (layer 4 sets `device.fork_auto_search_stalled` before raising); the
      game still works for other tasks. In memory: a scheduler restart (GUI update) ends the rest early.
    - Error dumps `log/error/<ms>` older than 14 days are removed at scheduler start and after each new dump.
-2. GUI process, crash path of `module/webui/instance_watchdog.py`: see `.claude/rules/webui.md`.
+2. GUI process, crash path of `module/webui/instance_watchdog.py`: see `.claude/rules/webui.md`. It also drives
+   the taskbar alert (`module/webui/fork_taskbar_alert.py`, red badge + flash on the Alas window, toast when
+   hidden) on crash / give-up / recovery; described there too.
 3. GUI process, manual-stop resume in the same file.
 4. OpSi auto search stall, `module/os/fork_auto_search_watch.py`, hooked by one import and one call in
    `OSMap.os_auto_search_daemon()` right after its per-frame `stuck_record_clear()`. That clear means a map with
@@ -65,5 +67,8 @@ Testing
 - `alas.py` `loop()`/`run()` can be driven for real with a fake config/device/checker injected as properties
   on a subclass; `exit(1)` surfaces as `SystemExit`.
 - The watchdog can be loaded from a file with stub `module.webui.process_manager` / `module.webui.updater`
-  entries in `sys.modules`, a fake clock on its `time` name and a patched `idle_seconds`.
+  entries in `sys.modules` (plus a stub `module.webui.fork_taskbar_alert`), a fake clock on its `time` name and
+  a patched `idle_seconds`. Import `module.logger` AND `module.webui` before the chdir to the scratch directory:
+  the package pulls in `deploy/logger.py`, which chdir's to the repo root again on its first import, so a test
+  that chdir's before it silently writes its state files into the live `log/` (found 2026-10-09).
 - Such scripts must follow hard rule 4 in `CLAUDE.md`.
