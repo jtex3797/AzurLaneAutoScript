@@ -36,6 +36,7 @@ Manual check against the real window:
 """
 import base64
 import json
+import math
 import os
 import subprocess
 import threading
@@ -55,9 +56,11 @@ RELOADED = os.path.exists(RELOAD_FILE)
 
 WINDOW_TITLE = "Alas"
 WINDOW_EXE = "alas.exe"
-# IDI_ERROR (red circle, white X) loaded 16x16 from user32. A path to an
-# .ico file here is loaded from that file instead.
-OVERLAY_ICON = 32513
+# Badge: None = a red dot with a white rim drawn at runtime (system small
+# icon size, so it follows DPI); an int = a user32 system icon id (32513 =
+# IDI_ERROR, red circle with a white X); a str = path of an .ico file.
+OVERLAY_ICON = None
+OVERLAY_COLOR = (0xE8, 0x11, 0x23)  # R, G, B
 OVERLAY_DESC = "오류"
 BACKOFF_MIN = 60
 BACKOFF_MAX = 1800
@@ -69,6 +72,39 @@ TOAST_AUMID = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\po
 TOAST_TITLE = "Alas 봇이 멈췄습니다"
 TEXT_CRASHED = "[{name}] 오류로 꺼졌습니다. 10분 뒤 자동 재시작을 시도합니다."
 TEXT_GAVE_UP = "[{name}] 자동 재시작 한도를 넘었습니다. 직접 확인이 필요합니다."
+
+
+def _dot_pixels(size, color):
+    """
+    Args:
+        size (int): Width and height in pixels.
+        color (tuple[int, int, int]): R, G, B of the disc.
+
+    Returns:
+        bytes: size*size BGRA pixels, top-down, straight alpha: a disc in
+            `color` with a white rim, anti-aliased by pixel coverage.
+    """
+    centre = (size - 1) / 2
+    radius = size / 2 - 0.5
+    rim = max(1.0, size / 10)
+    r, g, b = color
+    out = bytearray()
+    for y in range(size):
+        for x in range(size):
+            d = math.hypot(x - centre, y - centre)
+            outer = min(1.0, max(0.0, radius - d + 0.5))
+            inner = min(1.0, max(0.0, radius - rim - d + 0.5))
+            if outer <= 0:
+                out += b"\0\0\0\0"
+                continue
+            white = (outer - inner) / outer  # share of the covered area that is rim
+            out += bytes((
+                round(b + (255 - b) * white),
+                round(g + (255 - g) * white),
+                round(r + (255 - r) * white),
+                round(255 * outer),
+            ))
+    return bytes(out)
 
 
 class Win32Backend:
@@ -84,13 +120,15 @@ class Win32Backend:
     def __init__(self):
         self._ready = False
         self._hwnd = None
+        self._hicon = None
 
     def _setup(self):
         if self._ready:
             return
         import ctypes
         from ctypes import POINTER, Structure, WINFUNCTYPE
-        from ctypes import c_int, c_long, c_ubyte, c_uint, c_ulong, c_ushort, c_void_p, c_wchar_p
+        from ctypes import c_int, c_int32, c_long, c_ubyte, c_uint, c_uint16, c_uint32, c_ulong, c_ushort
+        from ctypes import c_void_p, c_wchar_p
 
         class GUID(Structure):
             _fields_ = [("Data1", c_ulong), ("Data2", c_ushort), ("Data3", c_ushort), ("Data4", c_ubyte * 8)]
@@ -99,7 +137,20 @@ class Win32Backend:
             _fields_ = [("cbSize", c_uint), ("hwnd", c_void_p), ("dwFlags", c_ulong),
                         ("uCount", c_uint), ("dwTimeout", c_ulong)]
 
-        user32, ole32 = ctypes.windll.user32, ctypes.windll.ole32
+        class BITMAPINFOHEADER(Structure):
+            _fields_ = [("biSize", c_uint32), ("biWidth", c_int32), ("biHeight", c_int32),
+                        ("biPlanes", c_uint16), ("biBitCount", c_uint16), ("biCompression", c_uint32),
+                        ("biSizeImage", c_uint32), ("biXPelsPerMeter", c_int32), ("biYPelsPerMeter", c_int32),
+                        ("biClrUsed", c_uint32), ("biClrImportant", c_uint32)]
+
+        class BITMAPINFO(Structure):
+            _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", c_uint32 * 3)]
+
+        class ICONINFO(Structure):
+            _fields_ = [("fIcon", c_int), ("xHotspot", c_uint32), ("yHotspot", c_uint32),
+                        ("hbmMask", c_void_p), ("hbmColor", c_void_p)]
+
+        user32, ole32, gdi32 = ctypes.windll.user32, ctypes.windll.ole32, ctypes.windll.gdi32
         HRESULT = c_long  # wintypes of 3.7 has no HRESULT
 
         def sig(fn, res, *args):
@@ -113,16 +164,23 @@ class Win32Backend:
         sig(user32.GetWindowThreadProcessId, c_ulong, c_void_p, POINTER(c_ulong))
         sig(user32.LoadImageW, c_void_p, c_void_p, c_void_p, c_uint, c_int, c_int, c_uint)
         sig(user32.FlashWindowEx, c_int, POINTER(FLASHWINFO))
+        sig(user32.GetSystemMetrics, c_int, c_int)
+        sig(user32.CreateIconIndirect, c_void_p, POINTER(ICONINFO))
         enum_proc = WINFUNCTYPE(c_int, c_void_p, c_void_p)
         sig(user32.EnumWindows, c_int, enum_proc, c_void_p)
+        sig(gdi32.CreateDIBSection, c_void_p, c_void_p, POINTER(BITMAPINFO), c_uint, POINTER(c_void_p),
+            c_void_p, c_ulong)
+        sig(gdi32.CreateBitmap, c_void_p, c_int, c_int, c_uint, c_uint, c_void_p)
+        sig(gdi32.DeleteObject, c_int, c_void_p)
         sig(ole32.CoInitializeEx, HRESULT, c_void_p, c_uint)
         sig(ole32.CoUninitialize, None)
         sig(ole32.CLSIDFromString, HRESULT, c_wchar_p, POINTER(GUID))
         sig(ole32.CoCreateInstance, HRESULT, POINTER(GUID), c_void_p, c_uint, POINTER(GUID), POINTER(c_void_p))
 
         self._ct = ctypes
-        self._user32, self._ole32 = user32, ole32
+        self._user32, self._ole32, self._gdi32 = user32, ole32, gdi32
         self._GUID, self._FLASHWINFO, self._enum_proc = GUID, FLASHWINFO, enum_proc
+        self._BITMAPINFO, self._ICONINFO = BITMAPINFO, ICONINFO
         # ITaskbarList3 vtable: 0-2 IUnknown, 3 HrInit, ..., 18 SetOverlayIcon
         self._fn_hr_init = WINFUNCTYPE(HRESULT, c_void_p)
         self._fn_release = WINFUNCTYPE(c_ulong, c_void_p)
@@ -199,8 +257,49 @@ class Win32Backend:
         if hr & 0x80000000:
             raise OSError(f"{what} failed, hr=0x{hr:08X}")
 
+    def _dot_icon(self):
+        """
+        Returns:
+            int: HICON of the red dot, drawn once per backend into a 32-bit
+                DIB (straight alpha) and kept for the life of the process.
+        """
+        if self._hicon:
+            return self._hicon
+        ct, user32, gdi32 = self._ct, self._user32, self._gdi32
+        size = user32.GetSystemMetrics(49) or 16  # SM_CXSMICON, follows the DPI
+        pixels = _dot_pixels(size, OVERLAY_COLOR)
+        info = self._BITMAPINFO()
+        info.bmiHeader.biSize = ct.sizeof(info.bmiHeader)
+        info.bmiHeader.biWidth = size
+        info.bmiHeader.biHeight = -size  # top-down rows
+        info.bmiHeader.biPlanes = 1
+        info.bmiHeader.biBitCount = 32
+        bits = ct.c_void_p()
+        color = gdi32.CreateDIBSection(None, ct.byref(info), 0, ct.byref(bits), None, 0)
+        if not color or not bits:
+            raise OSError("CreateDIBSection failed")
+        hicon = None
+        try:
+            ct.memmove(bits, pixels, len(pixels))
+            mask = gdi32.CreateBitmap(size, size, 1, 1, None)
+            if not mask:
+                raise OSError("CreateBitmap failed")
+            try:
+                icon = self._ICONINFO(1, 0, 0, mask, color)
+                hicon = user32.CreateIconIndirect(ct.byref(icon))
+            finally:
+                gdi32.DeleteObject(mask)
+        finally:
+            gdi32.DeleteObject(color)
+        if not hicon:
+            raise OSError("CreateIconIndirect failed")
+        self._hicon = hicon
+        return hicon
+
     def _icon(self):
         ct, user32 = self._ct, self._user32
+        if OVERLAY_ICON is None:
+            return self._dot_icon()
         if isinstance(OVERLAY_ICON, str):
             name = ct.cast(ct.c_wchar_p(OVERLAY_ICON), ct.c_void_p)
             flags = 0x10  # LR_LOADFROMFILE

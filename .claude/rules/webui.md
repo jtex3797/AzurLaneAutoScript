@@ -42,7 +42,9 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   (`startup()` once on its first tick before the updater-busy check, `tick()` every tick, `crashed(name, repeat)`
   on the first sighting of a crash, `gave_up(name)` when the restart budget is spent, `recovered(name)` on
   alive / clean stop / external start that is alive; the import is wrapped in try/except with a no-op stub).
-  Red IDI_ERROR overlay (`ITaskbarList3::SetOverlayIcon`, ctypes COM, vtable 3 = HrInit, 18 = SetOverlayIcon,
+  Red-dot overlay drawn at runtime (`_dot_pixels()` into a 32-bit DIB + `CreateIconIndirect`, system small-icon
+  size; `OVERLAY_ICON` may instead name a user32 icon id or an .ico path), set with `ITaskbarList3::SetOverlayIcon`
+  (ctypes COM, vtable 3 = HrInit, 18 = SetOverlayIcon,
   all argtypes/restype explicit, hr masked with `& 0xFFFFFFFF`) plus `FlashWindowEx(FLASHW_TRAY|FLASHW_TIMERNOFG)`
   on the Electron window, found by PID of `alas.exe` (ancestor of the GUI process, else any) + no owner + title
   "Alas" through `EnumWindows`. Never `FindWindowW(None, "Alas")`: it returns Explorer's TabProxyWindow of a

@@ -108,6 +108,22 @@ def test_import_has_no_side_effect():
     assert BEFORE_IMPORT == AFTER_IMPORT == []
 
 
+def test_dot_pixels_red_disc_with_white_rim():
+    size = 16
+    px = ta._dot_pixels(size, (0xE8, 0x11, 0x23))
+    assert len(px) == size * size * 4
+
+    def at(x, y):
+        i = (y * size + x) * 4
+        return tuple(px[i:i + 4])                     # B, G, R, A
+
+    assert at(0, 0)[3] == 0                           # corner: transparent
+    assert at(8, 8) == (0x23, 0x11, 0xE8, 255)        # centre: red, opaque
+    top = at(8, 0)
+    assert top[3] > 0 and min(top[:3]) > 0xE8         # edge: white rim
+    assert at(8, 8 - 2)[2] == 0xE8                    # inside the rim: pure red
+
+
 def test_first_crash_badges_and_flashes():
     alert, b, log, _ = make()
     alert.crashed("a")
