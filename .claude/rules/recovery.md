@@ -56,7 +56,11 @@ Five layers keep the bot running without a human. Upstream `alas.py` is untouche
    inside `run_probe()`: `Button.__init__` fixes the server path at import and the default server is `cn`.
    After an open probe the first "maintenance" answer of a lagging API within 30 min, and every other one within
    60 s of it, is overridden (one `GamePageUnknownError` calls `check_now()` twice); later answers are followed.
-   Unknown: whether a patch can be downloaded during maintenance; the probe only accepts it when offered.
+   Seen live 2026-11-05 (late opening, API still down 1.5 h past the end): a restart during maintenance offers
+   `LOGIN_GAME_UPDATE` and the download completes; then POPUP_CONFIRM_LOGIN, MAINTENANCE_ANNOUNCE and 12
+   LOGIN_CHECK taps end the probe as closed in about 1.5 min. Open issues: the 30 min no-restart rule also holds
+   after a 12 s download; the GUI toast says "점검 시작, 20:00까지 봇이 기다립니다" after every GUI start during
+   maintenance (first state is `loading`, then `in_progress` reads as a start).
    Tests: `./toolkit/python.exe -m tests.fork.test_fork_maintenance_login`.
 
 Left out on purpose
