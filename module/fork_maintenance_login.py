@@ -38,7 +38,8 @@ TRUST_GRACE = timedelta(seconds=60)
 WINDOW_API_INTERVAL = 120
 WAIT_STEP = 10
 PROBE_TIMEOUT = 480
-# After a probe clicked the patch download, later probes don't stop the game for this long
+# After a probe clicked the patch download, later probes don't stop the game for this long,
+# unless a probe sees MAINTENANCE_ANNOUNCE (the client got past the download to the server)
 DOWNLOAD_KEEP = timedelta(minutes=30)
 JP_PACKAGE = 'com.YoStarJP.AzurLane'
 
@@ -179,7 +180,12 @@ def run_probe(config, device, keep_running=False):
         keep_running (bool): don't stop the game first, a patch download may be running
 
     Returns:
-        tuple[bool, bool]: (reached page_main, patch download clicked)
+        tuple[bool, bool | None]: (reached page_main, download state). Download state:
+            True: the patch download was clicked and no MAINTENANCE_ANNOUNCE came after it,
+                it may still be running.
+            False: MAINTENANCE_ANNOUNCE came after the last download click (or without one),
+                nothing left to download. Also when page_main was reached.
+            None: neither, nothing is known.
     """
     # Assets are server specific and fixed at import, import after config is loaded
     from module.exception import GameNotRunningError, GameStuckError, GameTooManyClickError
@@ -187,13 +193,25 @@ def run_probe(config, device, keep_running=False):
 
     class ProbeLogin(LoginHandler):
         download_clicked = False
+        announce_after_download = False
 
         def appear_then_click(self, button, *args, **kwargs):
             clicked = super().appear_then_click(button, *args, **kwargs)
             if clicked and str(button) == 'LOGIN_GAME_UPDATE':
                 logger.info('Maintenance probe: game patch download started')
                 self.download_clicked = True
+                self.announce_after_download = False
+            if clicked and str(button) == 'MAINTENANCE_ANNOUNCE':
+                # Shown by the server, so the client is past any download
+                self.announce_after_download = True
             return clicked
+
+        def download_state(self):
+            if self.announce_after_download:
+                return False
+            if self.download_clicked:
+                return True
+            return None
 
         def confirm_main(self):
             # handle_app_login() also returns after a page_main popup, not only on page_main
@@ -232,4 +250,6 @@ def run_probe(config, device, keep_running=False):
             pass
         device.stuck_record_clear()
         device.click_record_clear()
-    return opened, login.download_clicked
+    if opened:
+        return True, False
+    return False, login.download_state()

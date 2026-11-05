@@ -69,7 +69,11 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   JP = package `com.YoStarJP.AzurLane` or `ServerName` `jp-*`; otherwise nothing is drawn. GUI side in
   `fork_widgets.py`: `MaintenanceAsideLine` (scope `aside_maintenance`, two-line label via `white-space: pre-line`,
   `--fork-maint-<marker>--` colours), `show_maintenance_popup()`, `maintenance_toast()` (session toast, 30 s on
-  start/extension, 10 s on end; `toast_plan()` is the pure rule). Nothing here may raise (TaskHandler contract).
+  start/extension, 10 s on end; `toast_plan()` is the pure rule). `toast_state()` is `loading` until the first
+  fetch (the first poll of a fresh GUI sees `unsupported` before `check()` scanned the instances), and a change
+  from `loading` is a baseline, not a start. `_observe()` skips saving while the notice is None and the status
+  `unknown` (failed fetch): the last record and its `end` stay for the scheduler. Nothing here may raise
+  (TaskHandler contract).
   Every 5 min `poll_api()` asks the scheduler's server status API (`sc.shiratama.cn get_state`, the JP instance's
   server name) only from 10 min before the announced start until 2 h after the announced end: "down, then up
   with a newer last_update" pins the real end to the minute (`finished_at`, label "점검 종료 19:54", finish push

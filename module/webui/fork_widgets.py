@@ -297,8 +297,8 @@ def maintenance_headline(status, marker):
         return "점검이 예정되어 있습니다. 시작되면 봇이 게임을 끄고 기다립니다"
     if status == "in_progress":
         if marker == "overdue":
-            return "예정 종료 시각이 지났지만 완료 공지가 아직 없습니다. 조금 더 기다립니다"
-        return "게임을 끄고 점검이 끝나기를 기다리는 중입니다. 봇을 끄지 않아도 됩니다"
+            return "예정 종료 시각이 지났습니다. 열릴 때까지 10분마다 접속을 시도합니다"
+        return "게임을 끄고 기다리는 중입니다. 종료 30분 전부터 10분마다 접속을 시도합니다"
     return "점검이 끝났습니다. 봇이 서버 상태를 확인하고 게임을 다시 켭니다"
 
 
@@ -374,7 +374,7 @@ def maintenance_toast(gui, state):
         end = _end_hm(end_iso)
         if kind == "start":
             toast(
-                f"점검 시작, {end}까지 봇이 기다립니다",
+                f"점검 시작, 종료 예정 {end}",
                 duration=30,
                 position="right",
                 color="error",
@@ -382,7 +382,7 @@ def maintenance_toast(gui, state):
             )
         elif kind == "extended":
             toast(
-                f"점검 연장, {end}까지 봇이 기다립니다",
+                f"점검 연장, 종료 예정 {end}",
                 duration=30,
                 position="right",
                 color="warn",

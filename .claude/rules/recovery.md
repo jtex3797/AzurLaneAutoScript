@@ -50,7 +50,8 @@ Five layers keep the bot running without a human. Upstream `alas.py` is untouche
    `maintenance_probe()` every 10 min: JP instance only, skipped while `emulator_probe` says the emulator is off
    (or unknown and no device exists yet, creating one may start it). The probe restarts the game (not within 30 min
    of a probe clicking `LOGIN_GAME_UPDATE`: a probe during the download sees no button and ends stuck after
-   60 s, so a "next probe only" rule killed long downloads), runs upstream `handle_app_login()` with a
+   60 s, so a "next probe only" rule killed long downloads; a probe that clicks `MAINTENANCE_ANNOUNCE` after
+   the last download click, a server popup, ends that 30 min early), runs upstream `handle_app_login()` with a
    480 s cap and counts as open only on 3 frames of page_main (the login also returns after a page_main popup).
    Open = available + recovered, so `loop()` queues `Restart` as after an API recovery. Login assets are imported
    inside `run_probe()`: `Button.__init__` fixes the server path at import and the default server is `cn`.
@@ -58,9 +59,8 @@ Five layers keep the bot running without a human. Upstream `alas.py` is untouche
    60 s of it, is overridden (one `GamePageUnknownError` calls `check_now()` twice); later answers are followed.
    Seen live 2026-11-05 (late opening, API still down 1.5 h past the end): a restart during maintenance offers
    `LOGIN_GAME_UPDATE` and the download completes; then POPUP_CONFIRM_LOGIN, MAINTENANCE_ANNOUNCE and 12
-   LOGIN_CHECK taps end the probe as closed in about 1.5 min. Open issues: the 30 min no-restart rule also holds
-   after a 12 s download; the GUI toast says "점검 시작, 20:00까지 봇이 기다립니다" after every GUI start during
-   maintenance (first state is `loading`, then `in_progress` reads as a start).
+   LOGIN_CHECK taps end the probe as closed in about 1.5 min. `run_probe()` returns the download state as
+   True (clicked, may still run) / False (popup seen, done) / None (unknown, keep the 30 min as is).
    Tests: `./toolkit/python.exe -m tests.fork.test_fork_maintenance_login`.
 
 Left out on purpose

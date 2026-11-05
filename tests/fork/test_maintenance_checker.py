@@ -212,6 +212,9 @@ def test_toast_plan():
     assert toast_plan((767, "in_progress", e), (767, "finished", e)) == ("finish", e)
     assert toast_plan((766, "finished", e), (767, "finished", e)) is None
     assert toast_plan((767, "scheduled", e), (767, "scheduled", e)) is None
+    # GUI started during maintenance: the first notice is a baseline, not a start
+    assert toast_plan((None, "loading", None), (767, "in_progress", e)) is None
+    assert toast_plan((None, "loading", None), (None, "loading", None)) is None
 
 
 # ---------- fetch selection ----------
@@ -330,6 +333,40 @@ def test_observe_fresh_then_scheduled_to_in_progress_pushes():
     c.clock = jst(2026, 10, 15, 19, 50)
     c.observe()
     assert c.pushes[-1][0] == "finish"
+
+
+def test_toast_state_loading_before_first_fetch():
+    c = MaintenanceChecker(state_file=os.path.join(SCRATCH, "fork_maintenance_5.json"))
+    # Before check(): no instances scanned ("unsupported") and nothing fetched
+    assert c.toast_state() == (None, "loading", None)
+    c = ObserveStub(os.path.join(SCRATCH, "fork_maintenance_5.json"))
+    c.notice = live_notice(jst(2026, 10, 8, 14, 0), jst(2026, 10, 8, 20, 0))
+    c.clock = jst(2026, 10, 8, 15, 0)
+    assert c.toast_state()[1] == "in_progress"
+
+
+def test_observe_fetch_failure_keeps_record():
+    state_file = os.path.join(SCRATCH, "fork_maintenance_4.json")
+    c = ObserveStub(state_file)
+    c.notice = live_notice(jst(2026, 10, 8, 14, 0), jst(2026, 10, 8, 20, 0))
+    c.clock = jst(2026, 10, 8, 15, 0)
+    c.observe()
+    saved = json.load(open(state_file, encoding="utf-8"))
+    assert saved["end"] == "2026-10-08T20:00:00+09:00"
+
+    # GUI restarted, first fetch failed: notice None, fetched
+    c2 = ObserveStub(state_file)
+    c2.clock = jst(2026, 10, 8, 15, 10)
+    c2.observe()
+    assert json.load(open(state_file, encoding="utf-8")) == saved
+    assert c2.pushes == []
+
+    # Next fetch works: same notice, no second start push
+    c2.notice = live_notice(jst(2026, 10, 8, 14, 0), jst(2026, 10, 8, 20, 0))
+    c2.clock = jst(2026, 10, 8, 15, 25)
+    c2.observe()
+    assert c2.pushes == []
+    assert json.load(open(state_file, encoding="utf-8"))["end"] == "2026-10-08T20:00:00+09:00"
 
 
 def test_has_provider_handles_bad_yaml():

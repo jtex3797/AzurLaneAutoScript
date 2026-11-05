@@ -331,7 +331,7 @@ def test_maintenance_probe():
 
         emulator_probe.emulator_running = lambda name: True
         # Download clicked, still closed; the next probes within 30 min keep the game running
-        results = [(False, True), (False, False), (False, False), (False, False)]
+        results = [(False, True), (False, None), (False, None), (False, None)]
         assert probe() is False
         advance(10)
         assert probe() is False
@@ -342,13 +342,29 @@ def test_maintenance_probe():
         assert calls == [False, True, True, False], calls
 
         # Clicked again, then open: the flag is cleared
-        results = [(False, True), (True, False), (False, False)]
+        results = [(False, True), (True, False), (False, None)]
         assert probe() is False
         advance(10)
         assert probe() is True
         advance(10)
         assert probe() is False
         assert calls[-3:] == [False, True, False], calls
+
+        # Clicked, then a probe sees the maintenance popup: restart again from the next one
+        results = [(False, True), (False, False), (False, None)]
+        assert probe() is False
+        advance(10)
+        assert probe() is False
+        advance(10)
+        assert probe() is False
+        assert calls[-3:] == [False, True, False], calls
+
+        # Download and popup in the same probe: the next one restarts at once
+        results = [(False, False), (False, None)]
+        assert probe() is False
+        advance(10)
+        assert probe() is False
+        assert calls[-2:] == [False, False], calls
 
         # Unknown emulator state and no device yet: don't create one
         emulator_probe.emulator_running = lambda name: None
@@ -357,7 +373,7 @@ def test_maintenance_probe():
         count = len(calls)
         assert bot2.maintenance_probe() is False and len(calls) == count
         # Unknown but a device exists: try
-        results = [(False, False)]
+        results = [(False, None)]
         assert probe() is False and len(calls) == count + 1
 
         # Non-JP instance
@@ -441,7 +457,7 @@ def test_run_probe():
         # Returned after a popup but not on page_main: closed
         state["main"] = False
         device = FakeDevice()
-        assert fml.run_probe(ProbeConfig(), device) == (False, False)
+        assert fml.run_probe(ProbeConfig(), device) == (False, None)
         state["main"] = True
 
         # Maintenance: the upstream login ends in a click error; keep_running skips the stop
@@ -450,21 +466,36 @@ def test_run_probe():
             raise GameTooManyClickError("LOGIN_CHECK")
         login.LoginHandler.handle_app_login = too_many
         device = FakeDevice()
-        assert fml.run_probe(ProbeConfig(), device, keep_running=True) == (False, False)
+        assert fml.run_probe(ProbeConfig(), device, keep_running=True) == (False, None)
         assert "stop" not in device.log and no_main_attr(device)
 
-        # Patch download offered on the way
-        def download(self):
-            self.appear_then_click(NamedButton("LOGIN_GAME_UPDATE"), interval=5)
-            raise GameTooManyClickError("LOGIN_CHECK")
-        login.LoginHandler.handle_app_login = download
+        def clicks(*names):
+            def login_flow(self):
+                for name in names:
+                    self.appear_then_click(NamedButton(name), interval=5)
+                raise GameTooManyClickError("LOGIN_CHECK")
+            return login_flow
+
+        # Patch download offered on the way, nothing after it: may still be downloading
+        login.LoginHandler.handle_app_login = clicks("LOGIN_GAME_UPDATE")
+        assert fml.run_probe(ProbeConfig(), FakeDevice()) == (False, True)
+        # Download, then the server's maintenance popup (2026-11-05 live order): finished
+        login.LoginHandler.handle_app_login = clicks(
+            "LOGIN_GAME_UPDATE", "POPUP_CONFIRM_LOGIN", "MAINTENANCE_ANNOUNCE")
+        assert fml.run_probe(ProbeConfig(), FakeDevice()) == (False, False)
+        # Maintenance popup without a download
+        login.LoginHandler.handle_app_login = clicks("MAINTENANCE_ANNOUNCE")
+        assert fml.run_probe(ProbeConfig(), FakeDevice()) == (False, False)
+        # A second download part after the popup counts again
+        login.LoginHandler.handle_app_login = clicks(
+            "LOGIN_GAME_UPDATE", "MAINTENANCE_ANNOUNCE", "LOGIN_GAME_UPDATE")
         assert fml.run_probe(ProbeConfig(), FakeDevice()) == (False, True)
 
         # Over the time cap
         fml.PROBE_TIMEOUT = -1
         login.LoginHandler.handle_app_login = reach_main
         device = FakeDevice()
-        assert fml.run_probe(ProbeConfig(), device) == (False, False)
+        assert fml.run_probe(ProbeConfig(), device) == (False, None)
         assert device.shots == 0 and no_main_attr(device)
         fml.PROBE_TIMEOUT = old[3]
 

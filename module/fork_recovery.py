@@ -121,13 +121,14 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
                     logger.warning('Maintenance probe: device unavailable, skip')
                     return False
             # A download keeps going between probes, the probe after it only watches the screen,
-            # so the game is left running for DOWNLOAD_KEEP after the last click, not one probe
+            # so the game is left running for DOWNLOAD_KEEP after the last click, not one probe.
+            # A probe that sees the download finished (download False) ends that early.
             now = datetime.now()
             keep = self.probe_download_at is not None and now - self.probe_download_at <= DOWNLOAD_KEEP
             opened, download = run_probe(self.config, self.device, keep_running=keep)
-            if opened:
+            if opened or download is False:
                 self.probe_download_at = None
-            elif download:
+            elif download is True:
                 self.probe_download_at = now
             return opened
         except Exception as e:

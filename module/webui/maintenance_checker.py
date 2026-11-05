@@ -219,7 +219,8 @@ def toast_plan(prev, state):
     Args:
         prev: the state the session saw last, None on the first poll.
         state: (notice id, status, end iso) from toast_state(), or -1 when
-            the Switch reports "unchanged".
+            the Switch reports "unchanged". Status "loading" = no notice read
+            yet since the GUI started.
 
     Returns:
         tuple[str, str] | None: (kind, end iso); kind is start, extended
@@ -229,6 +230,9 @@ def toast_plan(prev, state):
         return None
     notice_id, status, end_iso = state
     prev_id, prev_status, _ = prev
+    if prev_status == "loading":
+        # The first notice after a GUI start is a baseline, not a change
+        return None
     same = prev_id == notice_id
     if status == "in_progress" and not (same and prev_status == "in_progress"):
         if same and prev_status == "finished":
@@ -627,9 +631,13 @@ class MaintenanceChecker:
         Polled by the per-session toast Switch. Must not raise.
 
         Returns:
-            tuple: (notice id, status, end iso)
+            tuple: (notice id, status, end iso). Status is "loading" until the
+                first fetch, including the "unsupported" moment before
+                check() has scanned the instances.
         """
         try:
+            if self.fetched_at is None:
+                return None, "loading", None
             status = self._derive(self._now())[0]
             if self.notice is None:
                 return None, status, None
@@ -640,6 +648,10 @@ class MaintenanceChecker:
 
     def _observe(self, now):
         status = self._derive(now)[0]
+        if self.notice is None and status == "unknown":
+            # Fetch failed (or not done yet): keep the last record, its end is
+            # what the scheduler's login probe reads
+            return
         notice_id = self.notice["id"] if self.notice else None
         end_iso = self.notice["end"].isoformat() if self.notice else None
         record = self._record
@@ -683,9 +695,9 @@ class MaintenanceChecker:
             return
         end = _hm(notice["end"])
         if kind == "start":
-            title = f"벽람 점검 시작, {end}까지 대기"
+            title = f"벽람 점검 시작, 종료 예정 {end}"
         elif kind == "extended":
-            title = f"벽람 점검 연장, {end}까지 대기"
+            title = f"벽람 점검 연장, 종료 예정 {end}"
         elif self.finished_at is not None:
             title = f"벽람 점검 종료 {_hm(self.finished_at)}"
         else:
