@@ -6,10 +6,12 @@ paths:
   - "module/webui/instance_watchdog.py"
   - "module/os/map.py"
   - "module/os/fork_auto_search_watch.py"
+  - "module/fork_maintenance_login.py"
+  - "module/server_checker.py"
 ---
 # Fork conventions: recover instead of stopping
 
-Four layers keep the bot running without a human. Upstream `alas.py` is untouched.
+Five layers keep the bot running without a human. Upstream `alas.py` is untouched.
 
 1. Scheduler process, `module/fork_recovery.py` (`ForkAzurLaneAutoScript`, subclass of `alas.AzurLaneAutoScript`).
    Hooked by one added import line in `ProcessManager.run_process()`: scheduler loop only, single functions and
@@ -41,6 +43,21 @@ Four layers keep the bot running without a human. Upstream `alas.py` is untouche
    After 360s on the map with no battle and no click it clicks `AUTO_SEARCH_OS_MAP_OPTION_ON` once (upstream
    turns it back on), then raises `GameStuckError` (or `GameNotRunningError`) after another 360s, so layer 1
    applies. Normal runs stay under 247s idle on the map; recorded stalls were 383s to 11h.
+5. JP maintenance login probe, `module/fork_maintenance_login.py`, hooked by `ForkAzurLaneAutoScript.checker`
+   (`ForkServerChecker(ServerChecker)`). While the status API reports maintenance, `wait_until_available()` reads
+   the announced end from the GUI's `log/fork_maintenance.json` every 10 s (a corrected notice moves the window)
+   and, from 30 min before that end until 12 h after it, polls the API every 120 s and calls
+   `maintenance_probe()` every 10 min: JP instance only, skipped while `emulator_probe` says the emulator is off
+   (or unknown and no device exists yet, creating one may start it). The probe restarts the game (not within 30 min
+   of a probe clicking `LOGIN_GAME_UPDATE`: a probe during the download sees no button and ends stuck after
+   60 s, so a "next probe only" rule killed long downloads), runs upstream `handle_app_login()` with a
+   480 s cap and counts as open only on 3 frames of page_main (the login also returns after a page_main popup).
+   Open = available + recovered, so `loop()` queues `Restart` as after an API recovery. Login assets are imported
+   inside `run_probe()`: `Button.__init__` fixes the server path at import and the default server is `cn`.
+   After an open probe the first "maintenance" answer of a lagging API within 30 min, and every other one within
+   60 s of it, is overridden (one `GamePageUnknownError` calls `check_now()` twice); later answers are followed.
+   Unknown: whether a patch can be downloaded during maintenance; the probe only accepts it when offered.
+   Tests: `./toolkit/python.exe -m tests.fork.test_fork_maintenance_login`.
 
 Left out on purpose
 - No emulator restart. With an `emulator-*` serial, `Device.__init__` never raises `EmulatorNotRunningError`,

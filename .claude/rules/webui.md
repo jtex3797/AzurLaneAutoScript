@@ -76,7 +76,8 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   with the time), "down again" is an extension (new `api_round`, so the push keys `status@end@round` do not
   block the second finish). The HTTP call runs outside the lock; the answer is dropped if the notice changed.
   The API fields are saved with the notice's (id, end) and restored across restarts. Unparsable notice = no
-  polling. Probe: `./toolkit/python.exe -m module.webui.maintenance_checker --once [--api]`. Tests: `tests/fork/`, run with
+  polling. The scheduler process reads `end` of `log/fork_maintenance.json` for its login probe (recovery.md
+  layer 5), so keep that key an ISO time with offset or null. Probe: `./toolkit/python.exe -m module.webui.maintenance_checker --once [--api]`. Tests: `tests/fork/`, run with
   `./toolkit/python.exe -m tests.fork.test_maintenance_checker` (no pytest needed; chdir's to a temp dir after import).
 - `assets/gui/css/alas-fork.css`: all fork CSS. Loaded in `AlasGUI.run()` right after `alas` via
   `add_css(filepath_css("alas-fork"))`. Net fork diff in `alas.css` is zero; keep it that way.

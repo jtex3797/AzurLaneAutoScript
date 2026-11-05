@@ -4,9 +4,10 @@ import time
 from datetime import datetime, timedelta
 
 import inflection
+from cached_property import cached_property
 
 import alas
-from module.base.decorator import del_cached_property
+from module.base.decorator import del_cached_property, has_cached_property
 from module.config.deep import deep_get
 from module.exception import GamePageUnknownError
 from module.logger import logger
@@ -66,7 +67,72 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
         self.postpone_history = []
         # datetime, run nothing until then
         self.rest_until = None
+        # datetime, a maintenance probe clicked a patch download then, don't kill the game for a while
+        self.probe_download_at = None
         self.clean_error_log()
+
+    @cached_property
+    def checker(self):
+        """
+        Upstream ServerChecker plus login probes near the end of a JP maintenance,
+        see module/fork_maintenance_login.py.
+        """
+        try:
+            # Imported here: module.fork_maintenance_login must stay out of the import
+            # of this file, which happens before any config is loaded
+            from module.fork_maintenance_login import ForkServerChecker
+            return ForkServerChecker(server=self.config.Emulator_ServerName, probe=self.maintenance_probe)
+        except Exception as e:
+            logger.exception(e)
+            exit(1)
+
+    def maintenance_probe(self):
+        """
+        Start the game and try to log in, called by ForkServerChecker while the server
+        status API reports maintenance. Never raises.
+
+        Returns:
+            bool: If the login reached page_main.
+        """
+        try:
+            from module.fork_maintenance_login import DOWNLOAD_KEEP, JP_PACKAGE, run_probe
+            # The notice behind the probe window is the JP one
+            if self.config.Emulator_PackageName != JP_PACKAGE \
+                    and not str(self.config.Emulator_ServerName).startswith('jp-'):
+                return False
+            try:
+                from module.webui.emulator_probe import emulator_running
+                running = emulator_running(self.config_name)
+            except Exception as e:
+                logger.warning(f'Maintenance probe: emulator check failed, {e!r}')
+                running = None
+            if running is False:
+                logger.info('Maintenance probe: emulator is not running, skip')
+                return False
+            if not has_cached_property(self, 'device'):
+                # Creating the device may start the emulator, only do it when it is surely running
+                if running is not True:
+                    logger.info('Maintenance probe: emulator state unknown, skip')
+                    return False
+                try:
+                    _ = self.device
+                except SystemExit:
+                    # Upstream device property calls exit(1) on failure
+                    logger.warning('Maintenance probe: device unavailable, skip')
+                    return False
+            # A download keeps going between probes, the probe after it only watches the screen,
+            # so the game is left running for DOWNLOAD_KEEP after the last click, not one probe
+            now = datetime.now()
+            keep = self.probe_download_at is not None and now - self.probe_download_at <= DOWNLOAD_KEEP
+            opened, download = run_probe(self.config, self.device, keep_running=keep)
+            if opened:
+                self.probe_download_at = None
+            elif download:
+                self.probe_download_at = now
+            return opened
+        except Exception as e:
+            logger.warning(f'Maintenance probe failed: {e!r}')
+            return False
 
     def get_next_task(self):
         if self.rest_until is not None:
