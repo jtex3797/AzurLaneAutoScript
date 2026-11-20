@@ -165,6 +165,9 @@ class ForkAzurLaneAutoScript(alas.AzurLaneAutoScript):
         del_cached_property(self, 'config')
 
     def run(self, command, skip_first_screenshot=False):
+        if command.startswith('opsi'):
+            from module.os.fork_auto_search_watch import install
+            install()
         try:
             success = super().run(command, skip_first_screenshot=skip_first_screenshot)
         except SystemExit as e:

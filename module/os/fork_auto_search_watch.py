@@ -1,70 +1,87 @@
 """
-Fork patch for module/os/map.py, os_auto_search_daemon().
+Fork patch for OSMap.os_auto_search_daemon() in module/os/map.py, installed at runtime, no line in map.py.
 
-The daemon calls stuck_record_clear() on every frame while is_in_map(), so when the game bugs out with
-auto search ON and the fleet standing still, Alas waits forever without a single log line
-(upstream issues #4792, #2101; 11 hours on 2026-10-07).
-Count time on the map with no battle and no click: toggle auto search off and on once, then raise
-GameStuckError so task Restart takes over.
-Remove this file and its hook once upstream adds a timeout to os_auto_search_daemon.
+Upstream "Fix: detect stalled OpSi auto search" (2026-11-14) lets the stuck timer run while auto search is ON and
+the walk counter above the fleet stays the same, so a fleet standing still raises GameStuckError after 60s and
+upstream restarts the game (before that fix Alas waited forever, upstream issues #4792, #2101).
+Here the stall detection stays upstream's and only the reaction changes:
+- First stall in a daemon call: toggle auto search off and run the daemon again (it turns auto search back on).
+- Second stall in the same call: mark it for module/fork_recovery.py, which keeps an OpSi game bug out of the
+  3-hour rest, then raise so task Restart takes over.
+
+Installed by ForkAzurLaneAutoScript.run() for OpSi tasks, so the scheduler loop only. GUI single functions and
+`python alas.py` run upstream's class and get upstream's behaviour.
+Remove this file and its call in module/fork_recovery.py once upstream retries auto search before restarting.
 """
-import time
+import functools
 
-from module.exception import GameNotRunningError, GameStuckError
+from module.exception import CampaignEnd, GameStuckError
 from module.logger import logger
 from module.os_handler.assets import AUTO_SEARCH_OS_MAP_OPTION_ON
 
-# Seconds on the map without battle or click. Normal runs stay under 247s, real stalls lasted 383s+
-IDLE_LIMIT = 360
-# A longer gap between two on-map frames means Alas was off the map (combat, loading, popup)
-FRAME_GAP = 15
-# A longer gap means a new daemon call or a new task
-NEW_RUN_GAP = 30
 
-
-def auto_search_watch(main):
+def is_auto_search_map(main):
     """
-    Called by OSMap.os_auto_search_daemon() on every frame where is_in_map().
-
     Args:
         main (OSMap):
 
-    Raises:
-        GameStuckError: If still idle after toggling auto search, or auto search option not found.
-        GameNotRunningError: If game died.
+    Returns:
+        bool: If the last screenshot is an OpSi map with auto search ON. GameStuckError is raised before
+            a new screenshot is taken, so this is the frame the fleet stalled on.
     """
-    state = main.__dict__.setdefault('_fork_as_watch', {
-        'last': 0., 'idle': 0., 'count': -1, 'clicks': (), 'toggled': False,
-    })
-    now = time.time()
-    count = main._auto_search_battle_count
-    clicks = tuple(main.device.click_record)
-    gap = now - state['last']
-    state['last'] = now
-    if count != state['count'] or gap > NEW_RUN_GAP:
-        state.update(count=count, idle=0., toggled=False)
-    elif clicks != state['clicks']:
-        state['idle'] = 0.
-    elif gap < FRAME_GAP:
-        state['idle'] += gap
-    state['clicks'] = clicks
-    if state['idle'] < IDLE_LIMIT:
-        return
+    try:
+        return bool(main.match_template_color(AUTO_SEARCH_OS_MAP_OPTION_ON, offset=(5, 120)))
+    except Exception:
+        return False
 
-    idle = int(state['idle'])
-    state['idle'] = 0.
-    if not state['toggled'] and main.match_template_color(AUTO_SEARCH_OS_MAP_OPTION_ON, offset=(5, 120)):
-        logger.warning(f'Auto search idle on map for {idle}s, toggle auto search off and on')
-        state['toggled'] = True
-        main.device.click(AUTO_SEARCH_OS_MAP_OPTION_ON)
-        # Our own click is not progress
-        state['clicks'] = tuple(main.device.click_record)
-        return
 
-    logger.warning(f'Auto search idle on map for {idle}s, restart game')
-    if main.device.app_is_running():
-        # Read by module/fork_recovery.py: an OpSi game bug, not a broken game, so no global rest
-        main.device.fork_auto_search_stalled = True
-        raise GameStuckError('Auto search idle on map')
-    else:
-        raise GameNotRunningError('Game died')
+def retry_daemon(original):
+    """
+    Args:
+        original: OSMap.os_auto_search_daemon from upstream.
+
+    Returns:
+        Wrapped os_auto_search_daemon.
+    """
+
+    @functools.wraps(original)
+    def daemon(self, drop=None, strategic=False):
+        try:
+            return original(self, drop=drop, strategic=strategic)
+        except GameStuckError:
+            if not is_auto_search_map(self):
+                raise
+            # The daemon resets the counter when it starts again
+            finished = self._auto_search_battle_count
+            logger.warning('Auto search stalled on map, toggle auto search off and run it again')
+            self.device.click(AUTO_SEARCH_OS_MAP_OPTION_ON)
+
+        try:
+            return finished + original(self, drop=drop, strategic=strategic)
+        except CampaignEnd:
+            # os_auto_search_run() reads the counter after CampaignEnd
+            self._auto_search_battle_count += finished
+            raise
+        except GameStuckError:
+            if is_auto_search_map(self):
+                logger.warning('Auto search stalled on map again, restart game')
+                # Read by module/fork_recovery.py: an OpSi game bug, not a broken game, so no global rest
+                self.device.fork_auto_search_stalled = True
+            raise
+
+    daemon._fork_retry = True
+    return daemon
+
+
+def install():
+    """
+    Wrap OSMap.os_auto_search_daemon once per process.
+    """
+    from module.os.map import OSMap
+    original = getattr(OSMap, 'os_auto_search_daemon', None)
+    if original is None:
+        logger.warning('OSMap.os_auto_search_daemon not found, auto search retry not installed')
+        return
+    if getattr(original, '_fork_retry', False):
+        return
+    OSMap.os_auto_search_daemon = retry_daemon(original)

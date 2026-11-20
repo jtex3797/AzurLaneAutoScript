@@ -37,12 +37,14 @@ Five layers keep the bot running without a human. Upstream `alas.py` is untouche
    the taskbar alert (`module/webui/fork_taskbar_alert.py`, red badge + flash on the Alas window, toast when
    hidden) on crash / give-up / recovery; described there too.
 3. GUI process, manual-stop resume in the same file.
-4. OpSi auto search stall, `module/os/fork_auto_search_watch.py`, hooked by one import and one call in
-   `OSMap.os_auto_search_daemon()` right after its per-frame `stuck_record_clear()`. That clear means a map with
-   auto search ON and a fleet standing still never trips the 60s/180s stuck timers (upstream #4792, #2101).
-   After 360s on the map with no battle and no click it clicks `AUTO_SEARCH_OS_MAP_OPTION_ON` once (upstream
-   turns it back on), then raises `GameStuckError` (or `GameNotRunningError`) after another 360s, so layer 1
-   applies. Normal runs stay under 247s idle on the map; recorded stalls were 383s to 11h.
+4. OpSi auto search stall, `module/os/fork_auto_search_watch.py`. No line in `module/os/map.py`:
+   `ForkAzurLaneAutoScript.run()` calls `install()` for `opsi*` tasks, which wraps `OSMap.os_auto_search_daemon`
+   once per process. Detection is upstream's (2026-11-14): with auto search ON, an unchanged walk counter lets the
+   60s stuck timer raise `GameStuckError`. The wrapper catches the first one on an auto search map, clicks
+   `AUTO_SEARCH_OS_MAP_OPTION_ON` (the daemon turns it back on) and runs the daemon again; a second one in the
+   same call sets `device.fork_auto_search_stalled` and raises, so layer 1 applies without the global rest.
+   Scheduler loop only: GUI single functions and `python alas.py` get upstream's restart without the retry.
+   The old fork check (360s without battle or click) never fired from 2026-10-07 to 2026-11-20 and was dropped.
 5. JP maintenance login probe, `module/fork_maintenance_login.py`, hooked by `ForkAzurLaneAutoScript.checker`
    (`ForkServerChecker(ServerChecker)`). While the status API reports maintenance, `wait_until_available()` reads
    the announced end from the GUI's `log/fork_maintenance.json` every 10 s (a corrected notice moves the window)
