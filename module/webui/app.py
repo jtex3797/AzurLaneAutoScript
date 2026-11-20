@@ -67,7 +67,7 @@ from module.webui.remote_access import RemoteAccess
 from module.webui.setting import State
 from module.webui.updater import updater
 from module.webui.fork_widgets import (ICON_START, ICON_STOP, IconSwitchButton,
-                                       MaintenanceAsideLine, maintenance_toast,
+                                       MaintenanceAsideLine, inject_war_archives, maintenance_toast,
                                        show_workflow_status_popup, workflow_toast_text)
 from module.webui.instance_watchdog import instance_watchdog
 from module.webui.workflow_checker import workflow_checker
@@ -1259,6 +1259,7 @@ class AlasGUI(Frame):
         set_env(title="Alas", output_animation=False)
         add_css(filepath_css("alas"))
         add_css(filepath_css("alas-fork"))
+        inject_war_archives()
         if self.is_mobile:
             add_css(filepath_css("alas-mobile"))
         else:

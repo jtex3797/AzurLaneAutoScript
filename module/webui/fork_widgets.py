@@ -4,6 +4,7 @@ from pywebio.output import popup, put_button, put_link, put_scope, put_text, toa
 from module.logger import logger
 from module.webui.instance_watchdog import MANUAL_IDLE_SECONDS, MANUAL_RESUME_SECONDS, instance_watchdog
 from module.webui.maintenance_checker import maintenance_checker, toast_plan, window_text
+from module.webui.fork_war_archives import inject as inject_war_archives
 from module.webui.utils import Switch
 from module.webui.widgets import put_icon_buttons
 from module.webui.workflow_checker import workflow_checker

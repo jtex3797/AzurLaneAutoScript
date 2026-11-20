@@ -83,6 +83,16 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   polling. The scheduler process reads `end` of `log/fork_maintenance.json` for its login probe (recovery.md
   layer 5), so keep that key an ISO time with offset or null. Probe: `./toolkit/python.exe -m module.webui.maintenance_checker --once [--api]`. Tests: `tests/fork/`, run with
   `./toolkit/python.exe -m tests.fork.test_maintenance_checker` (no pytest needed; chdir's to a temp dir after import).
+- `module/webui/fork_war_archives.py` + `assets/gui/js/fork-war-archives.js`: War Archives event dropdown
+  (`WarArchives_Campaign_Event`). At import it wraps `lang.reload` so every reload relabels the ko-KR
+  `Campaign.Event.war_archives_*` keys as `Japanese / Korean / English` (Korean from `KO_NAMES`, others from
+  ja-JP/en-US with the `檔案 ` / `archives ` prefix cut; other tasks' Event lists untouched). `inject()` runs once
+  per session from `AlasGUI.run()` and sends the names JSON plus the JS file (read as UTF-8, so Korean text lives
+  there, never in the CSS). The JS (MutationObserver, registered once per page) widens the dropdown, adds an info
+  line and a "목록에서 고르기" button that opens a right-edge panel with search; picking re-queries the select
+  (a redraw replaces it), sets `select.value` and dispatches native `input`/`change`, which pywebio's pin sends
+  like a manual pick (checked end to end: the instance JSON is saved). pywebio option values are JSON-encoded
+  strings (`"\"war_archives_...\""`), so the JS parses them before looking names up.
 - `assets/gui/css/alas-fork.css`: all fork CSS. Loaded in `AlasGUI.run()` right after `alas` via
   `add_css(filepath_css("alas-fork"))`. Net fork diff in `alas.css` is zero; keep it that way.
 - Hooks inside `app.py` (the only fork edits there): `put_scope("aside_scheduler_btn")` plus the immediate redraw in
@@ -91,6 +101,8 @@ Upstream owns `app.py`, `widgets.py`, `utils.py`, `lang.py`, `alas.css`. The for
   the `{"label": "한국어", "value": "ko-KR"}` language option. Maintenance notice: the `MaintenanceAsideLine`/`maintenance_toast` import,
   `put_scope("aside_maintenance")` + redraw in `set_aside()`, `aside_maintenance_line` creation in `show()`,
   the `maintenance_switch` toast Switch in `run()`, and `maintenance_checker.check/observe/poll_api` in `startup()`.
+  War Archives picker: `inject_war_archives` in the fork_widgets import and the `inject_war_archives()` line right
+  after `add_css(filepath_css("alas-fork"))` in `run()`.
 
 Rules
 - `alas-fork.css` must stay ASCII-only, comments included. `add_css()` in `module/webui/utils.py` opens the file

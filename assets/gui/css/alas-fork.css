@@ -104,3 +104,174 @@
     fill: #8b949e;
     color: #8b949e;
 }
+
+/* War Archives picker (module/webui/fork_war_archives.py and
+   assets/gui/js/fork-war-archives.js). The id selector puts the event
+   dropdown on its own full-width rows: alas-pc.css and alas-mobile.css load
+   after this file and their [id^="pywebio-scope-arg_container-"] rules have
+   the same specificity as a bare class. */
+#pywebio-scope-arg_container-select-WarArchives_Campaign_Event.fork-wa-wide {
+    grid-auto-flow: row;
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+}
+
+.fork-wa-box {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: stretch;
+    margin-top: 6px;
+}
+
+.fork-wa-btn {
+    background: #8b7fe0;
+    color: #15131f;
+    border: 0;
+    padding: 4px 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.fork-wa-btn:hover {
+    filter: brightness(1.1);
+}
+
+.fork-wa-info {
+    flex: 1 1 260px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    align-items: center;
+    padding: 6px 10px;
+    background: rgba(139, 127, 224, 0.12);
+    border-left: 4px solid #8b7fe0;
+    transition: background-color 0.35s;
+}
+
+.fork-wa-info.fork-wa-flash {
+    background: rgba(139, 127, 224, 0.4);
+}
+
+.fork-wa-ja {
+    font-weight: 700;
+}
+
+.fork-wa-sep {
+    opacity: 0.5;
+}
+
+.fork-wa-miss {
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.fork-wa-date {
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Side panel: right edge only, opens from the button, never by itself */
+.fork-wa-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(420px, 90vw);
+    z-index: 1040;
+    display: flex;
+    flex-direction: column;
+    background: #24252b;
+    color: #e6e6ea;
+    border-left: 4px solid #8b7fe0;
+    transform: translateX(105%);
+    visibility: hidden;
+    transition: transform 0.25s ease-out, visibility 0.25s;
+}
+
+.fork-wa-panel.fork-wa-open {
+    transform: none;
+    visibility: visible;
+}
+
+.fork-wa-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px 8px;
+}
+
+.fork-wa-count {
+    opacity: 0.7;
+    font-weight: 400;
+}
+
+.fork-wa-close {
+    background: #33343b;
+    color: inherit;
+    border: 0;
+    padding: 4px 12px;
+    cursor: pointer;
+}
+
+.fork-wa-search {
+    margin: 0 14px 10px;
+    background: #33343b;
+    color: inherit;
+    border: 0;
+    border-bottom: 2px solid #8b7fe0;
+    padding: 8px 10px;
+}
+
+.fork-wa-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 8px 12px;
+}
+
+.fork-wa-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    color: inherit;
+    border: 0;
+    border-left: 4px solid transparent;
+    padding: 8px 10px;
+    cursor: pointer;
+}
+
+.fork-wa-item:hover,
+.fork-wa-item.fork-wa-sel {
+    background: #33343b;
+}
+
+.fork-wa-item.fork-wa-sel {
+    border-left-color: #8b7fe0;
+}
+
+.fork-wa-item .fork-wa-ja {
+    display: block;
+    font-size: 1.05rem;
+    font-weight: 500;
+}
+
+.fork-wa-sub {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 0.82rem;
+    opacity: 0.85;
+}
+
+.fork-wa-empty {
+    padding: 10px;
+    opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fork-wa-panel,
+    .fork-wa-info {
+        transition: none;
+    }
+}
