@@ -77,7 +77,7 @@ KO_NAMES = {
     'war_archives_20230223_cn': '잿빛 폐허',
     'war_archives_20230525_cn': '오엽각 교차점',
     'war_archives_20230803_cn': '불타는 아이리스 회상곡',
-    'war_archives_20230817_cn': '어리석은 자의 천칭',
+    'war_archives_20230817_cn': '우자의 천칭',
     'war_archives_20231026_cn': '템페스타와 청춘의 샘',
     'war_archives_20240725_cn': '환몽 간주곡',
     'war_archives_20241024_cn': '템페스타와 잠든 바다',
